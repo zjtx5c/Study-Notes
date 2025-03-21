@@ -2,7 +2,7 @@
 
 ## `torch.nn`
 
-目前暂定学习 `Containers`，`Linear Layers`， `Loss Functions`, `Transform_layers` 等模块
+目前暂定学习 `Containers`，`Linear Layers`， `Loss Functions`, `Transform_layers` 等模块...
 
 ### `Buffer` 与 `Parameter`
 
