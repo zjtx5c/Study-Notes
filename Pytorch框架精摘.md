@@ -67,6 +67,17 @@
 
 * 所有神经网络模块的**基类**。我们模型也应该继承这个类。`Module` 还可以包含其他 `Module`，允许它们嵌套在树结构中。并在 `__init__` 方法中定义层结构，在 `forward` 方法中定义数据的前向传播过程。
 
+  * ```python 
+    import torch.nn as nn
+    class A(nn.Module):
+        def __init__(self):
+            super(A, self).__init__()
+            
+    a = A()
+    ```
+
+    我们向上述一样这样定义了一个类，那么实例 `a` 就是一个 `nn.Module`可以像 PyTorch 其他模型一样使用，例如添加层、进行前向传播等。
+
 * 核心作用
 
   * 管理模型参数（`nn.Parameter`）
@@ -101,21 +112,21 @@
 
 * 常用的 `Module` 功能
 
-  | 方法                 | 作用                                                     |
-  | -------------------- | -------------------------------------------------------- |
-  | `parameters()`       | 获取所有可训练参数                                       |
-  | `named_parameters()` | 获取带名称的参数                                         |
-  | `children()`         | 获取直接子模块                                           |
-  | `named_children()`   | 获取直接子模块及名称                                     |
-  | `modules()`          | 获取所有子模块（包括嵌套）                               |
-  | `named_modules()`    | 获取所有子模块及名称                                     |
-  | `state_dict()`       | 获取模型的状态字典                                       |
-  | `load_state_dict()`  | 加载模型状态                                             |
-  | `register_buffer()`  | **注册不参与优化的 `Tensor` （居然可以直接在外面实现）** |
-  | `train(mode=True)`   | 设定训练模式                                             |
-  | `eval()`             | 设定评估模式，会关闭 Dropout 及 BatchNorm 统计更新。     |
-  | `apply(fn)`          | 对所有子模块应用函数（常用于初始化参数）                 |
-  | `zero_grad()`        | 清空所有参数的梯度                                       |
+  | 方法                 | 作用                                                      |
+  | -------------------- | --------------------------------------------------------- |
+  | `parameters()`       | 获取所有可训练参数                                        |
+  | `named_parameters()` | 获取带名称的参数（用过这个方法debug，检查过梯度断裂问题） |
+  | `children()`         | 获取直接子模块                                            |
+  | `named_children()`   | 获取直接子模块及名称                                      |
+  | `modules()`          | 获取所有子模块（包括嵌套）                                |
+  | `named_modules()`    | 获取所有子模块及名称                                      |
+  | `state_dict()`       | 获取模型的状态字典                                        |
+  | `load_state_dict()`  | 加载模型状态                                              |
+  | `register_buffer()`  | **注册不参与优化的 `Tensor` （居然可以直接在外面实现）**  |
+  | `train(mode=True)`   | 设定训练模式                                              |
+  | `eval()`             | 设定评估模式，会关闭 Dropout 及 BatchNorm 统计更新。      |
+  | `apply(fn)`          | 对所有子模块应用函数（常用于初始化参数）                  |
+  | `zero_grad()`        | 清空所有参数的梯度                                        |
 
 #### [Sequential](https://pytorch.org/docs/stable/generated/torch.nn.Sequential.html)
 
@@ -147,7 +158,9 @@
   * **无法处理多个输入**，比如 GNN 可能需要 `forward()` 处理多个输入，需要手写 `nn.Module` 继承类。
 
     * `nn.Sequential` 不能直接用于处理多个输入，这是显然的。
-
+      * 我甚至立马能想象出来它的 `forward` 是怎么处理的
+    
+    
     **不适用于具有条件逻辑的模型**，如 `if` 语句或跳跃连接（Residual Networks 需要自定义 `forward()`）。
 
 
@@ -175,6 +188,150 @@
   * `.clear()` `.items()` `.keys()` `.pop(key)` `.values()`
   * `.update(modules)`：它允许你通过将另一个 `ModuleDict` 或者字典类型的数据合并到当前的 `ModuleDict` 中来更新现有的子模块。
 * 应用场景：以后见到了再好好感受下
+
+
+
+
+
+## `torch.Tensor`
+
+直接看 [这篇](https://pytorch.zhangxiann.com/1-ji-ben-gai-nian/1.2-tensor-zhang-liang-jie-shao) 与 [这篇](https://pytorch.zhangxiann.com/1-ji-ben-gai-nian/1.3-zhang-liang-cao-zuo-yu-xian-xing-hui-gui)
+
+### 概念
+
+张量是包含单一数据类型元素的**多维矩阵**，它是标量、向量、矩阵的高维扩展。。是 `pytorch` 中最基本的数据结构！
+
+* 张量的优势：
+
+  * **支持 GPU 加速**（可以用 `.to('cuda')` 将张量转移到 GPU）。
+
+    **支持自动微分**（在深度学习中用于计算梯度）。
+
+    **支持广播机制**（不同形状的张量可以自动扩展计算）。
+
+* 拥有**八个**属性
+
+  * `data`, `grad`, `grad_fn`,  `requires_grad`,  `is_leaf`,  `dtype`, `shape`, `device`
+
+* `Tensor` 创建的方法
+
+  * 直接创建 `Tensor`： `torch.tensor()`
+
+  * 根据数值创建 `torch.zeors()`,  `torch.zeros_like(input)`: 创建与 `input` **形状相同** 的全零张量
+    `torch.ones()`, `torch.ones_like()`
+    `torch.fill((3, 3), 2)`, `torch.fill_like(input, val)`: 创建自定义类型的张量
+
+    `torch.arange(start = 0, end, step = 1)`
+
+    `torch.linspace(start, end, steps = 100)`: `stpes` 表示数列长度（元素个数）:功能：创建均分的 1 维张量。数值区间为 [start, end]
+    `torch.logspace(start, end, stpes = 100, base = 10)`\
+
+    `torch.eye()`
+
+  * 根据概率创建  `Tensor()`
+
+    * `torch.normal()`: `torch.normal(mean, std, *, generator=None, out=None)`
+
+      功能：生成正态分布 (高斯分布)
+
+    * `torch.randn(size)` 与 `torch.randn_like(input)`
+      功能：生成标准正态分布。
+
+    * `torch.rand(size) 和 torch.rand_like(input)`
+
+      功能：在区间 `[0, 1)` 上生成均匀分布。
+
+    * `torch.randint(low = 0, high, size)` 和 `torch.randint_like(input, low = 0, high)`
+
+    * `torch.randperm()`
+
+      功能：生成从` 0` 到 `n-1` 的随机排列。常用于生成索引。
+
+      
+
+### 张量的操作
+
+直接看[这篇](https://pytorch.zhangxiann.com/1-ji-ben-gai-nian/1.3-zhang-liang-cao-zuo-yu-xian-xing-hui-gui)，不想写了
+
+* 彻底理解拼接操作的机制，**自己的感悟是从括号中认识维度（`dim`）**
+
+  * 尤其是：`dim = -1`  是**最内层里面的==元素（是单个值了，没有被其他括号包围）==**
+    `dim = 0` 是 最**外层里面的元素（一般情况下并非单个值，仍然被其他括号包围）**
+    * 对应的元素要==一一对应（括号对括号，值对值）==！
+    * 记忆法，`dim` 指定哪个维度，哪个维度就会变化
+    * 不要以为 `dim` 小的元素数量就比 `dim` 大的元素数量大，它们都有各自存在的对应区域！！（好好悟一下！），其**索引**能够“穿越”其他维度。
+  * `torch.stack()` 的机制？先增一维！
+
+* 切分操作（鸽了）
+
+* 索引操作
+
+* 变换操作
+
+  * `torch.reshape()`
+    功能：变换张量的形状。当张量**在内存中是连续**时，返回的张量和原来的张量共享数据内存，改变一个变量时，另一个变量也会被改变。
+
+    * 应用场景
+
+      **数据展平**（Flatten），如 `torch.reshape(x, (-1,))`。
+
+      **调整形状以适配模型输入**，如 `torch.reshape(x, (batch_size, channels, height, width))`。
+
+      **与 NumPy 的 `.reshape()` 类似，适用于改变张量形状但不改变数据本身**。
+
+    * 提醒：**新维度应该有实际的物理或语义上的==意义==**，否则可能会导致数据在计算过程中被错误使用。
+
+      在改变形状时，确保数据排列不会影响计算逻辑。
+
+      如果只是为了处理维度，可以用 `permute()` 或 `view()`，而不是盲目 `reshape()`。
+
+  * `torch.transpose(input, dim0, dim1)`
+    功能：交换张量的两个维度。常用于图像的变换，比如把`c*h*w`变换为`h*w*c`。
+
+    * `input`: 要交换的变量
+
+      `dim0`: 要交换的第一个维度
+
+      `dim1`: 要交换的第二个维度
+
+  * `torch.t(input)`
+
+    * 二维矩阵的转置
+
+  * `torch.squeeze(input, dim)`
+
+    * 压缩长度为1的维度
+
+    * 应用场景：
+
+      **去掉多余的维度**，尤其是在处理神经网络的输出时。
+
+      **匹配输入格式**，有些 API 可能要求特定维度的张量。
+
+  * `torch.unsqueeze(input, dim)`
+
+    * 功能：根据 dim 扩展维度，长度为 1。
+
+    * 应用场景：
+
+    * **扩展维度以匹配操作**，如在批量处理中手动添加 batch 维度 (`dim=0`)。
+
+      **增加通道维度**，如将 `(H, W)` 变成 `(1, H, W)` 以适配 CNN 输入。
+
+### 张量的数学运算
+
+鸽了！
+
+### 其他问题
+
+* `torch.tensor` 和 `torch.Tensor` 的区别是什么？
+
+  * `torch.tensor` 是用于创建张量的**函数**，并且会根据输入创建一个数据副本，它需要**显示**地提供数据`data`。
+  * `torch.Tensor` 是**张量的类**构造函数，**通常**会返回一个未经初始化的张量（它其实是 `torch.FloatTensor` 的别名）。
+
+  一般来说，建议使用 `torch.tensor` 来显式地创建张量，因为它的行为更加明确，尤其是在数据处理时。
+
+  
 
 
 
