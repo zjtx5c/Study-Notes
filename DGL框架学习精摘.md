@@ -205,11 +205,19 @@
 
 ## dgl.nn
 
-### 异构图学习模块
+### 异构图学习模块（重点学习）
 
-#### 卷积
+#### [卷积 `HeteroGraphConv`](https://www.dgl.ai/dgl_docs/generated/dgl.nn.pytorch.HeteroGraphConv.html#dgl.nn.pytorch.HeteroGraphConv)
+
+这是一个通用的卷积模块，用于在异构图上执行卷积操作。异构图中的不同类型的节点和边需要特定的卷积操作，这个模块允许用户自定义这些卷积方式，以便在不同类型的节点和边上进行处理。
+
+* 理解聚合到底是针对什么聚合（场景需要清楚），理解其 `forward`函数在什么时候触发？又具体做了什么？输入有两种形式，输入节点的特征，可以是字典（`dict[str, Tensor]`）形式，或者在某些情况下为元组（`tuple`），如果是元组，它将被视为源节点和目标节点特征的对。
+
+#### [线性变换 `HeteroLinear`](https://www.dgl.ai/dgl_docs/generated/dgl.nn.pytorch.HeteroLinear.html)
 
 #### [嵌入 HeteroEmbedding](https://www.dgl.ai/dgl_docs/generated/dgl.nn.pytorch.HeteroEmbedding.html)
+
+这是一个为异构图创建嵌入表的模块。在异构图中，不同类型的节点或边通常会有不同的嵌入，`HeteroEmbedding` 可以根据节点的类型为每个节点生成对应的嵌入向量。
 
 * 直接看官网更方便
 
@@ -227,7 +235,7 @@
 
 * `nn.ModuleDict()` **只能接受字符串作为键**，自己写源码时不要忘记添加。
 
-
+#### [`TypedLinear`](https://www.dgl.ai/dgl_docs/generated/dgl.nn.pytorch.TypedLinear.html#typedlinear)
 
  
 
@@ -470,12 +478,6 @@
 
 * 手写时还需要想清楚 `g.nodes.mailbox['e']` 中的维度情况。
 * 此公式对应流程中的消息聚合模块
-
-
-
-
-
-## DeepWalk
 
 
 
