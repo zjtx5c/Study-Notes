@@ -22,6 +22,7 @@
     ```
     发现几乎都是 `gat_layers0` 或 `gat_layers1` 中的 `attn_l`, `attn_r`, `attn_m`, `.bias` 与 `fc.weight` 断裂 且都与**边嵌入**相关！！！！。于是顺腾摸瓜终于被我排查出了错误，原来是在 `MultiImportModel` 中传入 `edge_weight` 时候， `edge_weight` 并不是可学习的张量。解决方法为将原先`models` 模块中的 `edge_weight_dic = {etype: g.edges[etype].data['weight'] for etype in g.etypes}` 修改为 `edge_weight_dic = {etype: nn.Parameter(g.edges[etype].data['weight']) for etype in g.etypes}`
   * 花费时间 一天+一上午
+  * ==后续：又在张量的问题上出错了，以后的实验一定要好好检查哪些应该被设置成**叶子张量**== （导致这点出现的原因是，我们忽略了我们的嵌入是自己构造的，而一般的嵌入都是通过 `word2vec` 等算法生成的，生成过程中会使用到 `nn.Module` 模块，它们会自动将对应的数据注册为叶子张量）。
 
 ## Easy Bug
 
