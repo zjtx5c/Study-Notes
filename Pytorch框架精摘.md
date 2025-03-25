@@ -61,7 +61,7 @@
         print(param)
     ```
 
-### Containers
+### `Containers`
 
 #### [`Module`](https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module)
 
@@ -160,7 +160,6 @@
     * `nn.Sequential` 不能直接用于处理多个输入，这是显然的。
       * 我甚至立马能想象出来它的 `forward` 是怎么处理的
     
-    
     **不适用于具有条件逻辑的模型**，如 `if` 语句或跳跃连接（Residual Networks 需要自定义 `forward()`）。
 
 
@@ -189,9 +188,70 @@
   * `.update(modules)`：它允许你通过将另一个 `ModuleDict` 或者字典类型的数据合并到当前的 `ModuleDict` 中来更新现有的子模块。
 * 应用场景：以后见到了再好好感受下
 
+### Transformer（搁置）
 
 
 
+### Linear Layers
+
+#### [`nn.Identity`](https://pytorch.org/docs/stable/generated/torch.nn.Identity.html#torch.nn.Identity)
+
+`nn.Identity` 是 PyTorch 中的一个**伪层（identity layer）**，它不执行任何数学变换，直接返回输入数据。这是一个非常简单但非常有用的模块，通常在模型设计、调试或动态网络结构中作为**占位符**使用。
+
+* 理解它的作用与占位符
+* 基本功能
+  * **输入输出相同**：`nn.Identity()` 层对输入不做任何修改，直接返回原始数据。
+  * **无参数学运算**：它没有任何可学习的参数（权重或偏置），计算开销几乎为零。
+  * **类似于 `lambda x: x`**，但它是 `nn.Module` 的子类，可以像其他 PyTorch 层一样被添加到模型中。
+
+* 用处
+  * **占位符（最有用的）**： `self.act = nn.ReLU() if use_activation else nn.Identity()  # 动态选择是否使用激活`
+  * 调试模型：插入 `Identity` 检查输入流
+
+#### [`nn.Linear`](https://pytorch.org/docs/stable/generated/torch.nn.Linear.html)
+
+* 对传入的数据进行放射变换： $y = xW^{\top} + b$
+
+  - 输入 $x$ 的形状：`(*, in_features)`
+
+  - 权重 $W$ 的形状：`(out_features, in_features)`
+
+  - 偏置 $b$ 的形状：`(out_features)`（可设置 true or false）
+
+  - 输出 $y$ 的形状：`(*, out_features)`
+    （`*` 表示任意额外的维度，如 batch_size）
+  - **因此，我们的这个操作 `nn.Linear(in_feats, out_feats)` 定义的其实是 $W^{\top}$ 而非 $W$**，这是 PyTorch 设计中的一个关键细节，容易让人产生困惑。
+
+* 关键细节
+
+  * 权重初始化：默认使用均匀分布 $\mathcal{U}(-\sqrt k, \sqrt k), k = 1 / in\_feates$，其中 
+  * 若禁用偏置，则为 $y = xW^{\top}$
+  * 高维处理：`nn.Linear` 会自动支持更高维度的输入（如 3D 张量），**仅对最后一维做线性变换**
+
+* 思考与 `torch.matmul()` 的区别
+
+  | 操作         | `nn.Linear`                        | `torch.matmul()`         |
+  | :----------- | :--------------------------------- | :----------------------- |
+  | **功能**     | 封装了权重和偏置的线性变换         | 纯矩阵乘法               |
+  | **偏置**     | 支持（可选）                       | 需手动添加               |
+  | **梯度计算** | 自动跟踪 `weight` 和 `bias` 的梯度 | 需手动定义可训练参数     |
+  | **适用场景** | 模型构建时的标准层                 | 自定义低级运算或特殊结构 |
+
+  * 思考：实现一下两者的等效实现，尤其是高维度的情况（理解广播机制）
+    ```python
+    import torch
+    import torch.nn as nn
+    linear = nn.Linear(100, 50)
+    x = torch.randn(10, 20, 100)
+    y1 = linear(x)
+    WT = linear.weight.transpose(0, 1).unsqueeze(0)
+    # b = linear.bias.unsqueeze(dim = 0).unsqueeze(dim = 0)
+    b = linear.bias.view(1, 1, -1)
+    y2 = torch.matmul(x, WT) + b
+    torch.allclose(y1, y2, atol=1e-6)
+    ```
+  
+    ==注意：这里需要设置浮点数误差为 `1e-6`，才能返回为 `True`，精度再高一点则是 `False`==！这个BUG修了好久，但是如果不自己广播，让系统自动广播，那么精度几乎是无限接近的就很奇怪。。
 
 ## `torch.Tensor`
 
@@ -350,13 +410,22 @@
 
   一般来说，建议使用 `torch.tensor` 来显式地创建张量，因为它的行为更加明确，尤其是在数据处理时。
 
-  
+
+
+
+
+
+
+
+
 
 
 
 ## 计算图
 
 初步理解计算图可以看[这篇](https://zhuanlan.zhihu.com/p/191648279)
+
+深入理解计算图还有一篇知乎上的，我点赞了，等水平上去了再去看
 
 * 计算图是用来描述运算的**有向无环图**，有两个主要元素：节点 (Node) 和边 (Edge)。**节点表示数据**，如**向量、矩阵、张量**。**边表示运算**，如**加减乘除卷积**等。
 
