@@ -4,7 +4,7 @@
 
 目前暂定学习 `Containers`，`Linear Layers`， `Loss Functions`, `Transform_layers` 等模块...
 
-### `Buffer` 与 `Parameter`
+### Buffer与 Parameter
 
 #### [`Buffer`](https://pytorch.org/docs/stable/generated/torch.nn.parameter.Buffer.html#torch.nn.parameter.Buffer)
 
@@ -61,7 +61,7 @@
         print(param)
     ```
 
-### `Containers`
+### Containers
 
 #### [`Module`](https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module)
 
@@ -128,7 +128,7 @@
   | `apply(fn)`          | 对所有子模块应用函数（常用于初始化参数）                  |
   | `zero_grad()`        | 清空所有参数的梯度                                        |
 
-#### [Sequential](https://pytorch.org/docs/stable/generated/torch.nn.Sequential.html)
+#### [`nn.Sequential`](https://pytorch.org/docs/stable/generated/torch.nn.Sequential.html)
 
 * `nn.Sequential` 是 PyTorch 中用于构建**顺序模型**的容器，它按照**给定顺序**将一系列层组合成一个网络。使用它可以简化模型定义，使代码更加简洁。
 
@@ -164,7 +164,7 @@
 
 
 
-#### [ModuleList](https://pytorch.org/docs/stable/generated/torch.nn.ModuleList.html)
+#### [`nn.ModuleList`](https://pytorch.org/docs/stable/generated/torch.nn.ModuleList.html)
 
 * 在列表中保存子模块
 * `nn.ModuleList` **可以像 Python 普通列表那样索引和遍历，其中的 `nn.Module` 子模块会被 PyTorch 正确注册**，因此它们可以被 `model.parameters()` 访问，并被优化器更新。
@@ -179,7 +179,7 @@
     * `layers.insert(1, nn.BatchNorm1d(20))  # 在索引 1 插入 BatchNorm 层`
 
 
-#### [ModuleDict](https://pytorch.org/docs/stable/generated/torch.nn.ModuleDict.html)
+#### [`nn.ModuleDict`](https://pytorch.org/docs/stable/generated/torch.nn.ModuleDict.html)
 
 * 在字典中保存子模块
 * 同上
@@ -214,7 +214,7 @@
 
   - 输入 $x$ 的形状：`(*, in_features)`
 
-  - 权重 $W$ 的形状：`(out_features, in_features)`
+  - 权重 $W$ 的形状：`(out_features, in_features)`，因为数学上的写法是 $y = Wx + b$
 
   - 偏置 $b$ 的形状：`(out_features)`（可设置 true or false）
 
@@ -252,6 +252,18 @@
     ```
   
     ==注意：这里需要设置浮点数误差为 `1e-6`，才能返回为 `True`，精度再高一点则是 `False`==！这个BUG修了好久，但是如果不自己广播，让系统自动广播，那么精度几乎是无限接近的就很奇怪。。
+
+### init
+
+权重初始化对深度学习模型的性能至关重要（比我们想象得重要），它决定了优化过程的起点。
+
+看一下[李沐]()
+
+
+
+
+
+
 
 ## `torch.Tensor`
 
