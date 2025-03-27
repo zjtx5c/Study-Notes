@@ -16,7 +16,6 @@
 
   * 会用到 `zip`
 
-
 ## dgl.DGLGraph
 
 ### `g.apply_edges()`
@@ -203,6 +202,41 @@
       **$d$**：单条边上的消息维度。
 
 
+
+## [dgl.function](https://www.dgl.ai/dgl_docs/api/python/dgl.function.html)
+
+* 一般诸如 `fn.u_add_v()` 这种内联函数**在 `apply_edges()` 和 `update_all()` 中的行为不同**，
+  - **在 `g.apply_edges()` 中使用时**，计算结果会存入 **`edata`**（边数据字典）。
+  - **在 `g.update_all()` 中使用时**
+    - 针对 `message_func`： 计算结果会先存入 **`edata`**（临时存储），然后被传递到 **`mailbox`**，用于目标节点的聚合。
+    - 针对 `reduce_func`（比如使用 `fn.sum('m', 'ft')`）: 会将上一轮任务得到的 `mailbox` 提取数据并将最终的结果存入到目标节点 `ndata` 中。
+
+### [`fn.u_add_v`](https://www.dgl.ai/dgl_docs/generated/dgl.function.u_add_v.html)
+
+* 这是一个内嵌函数，所以通常要配合 `g.apply_edges(fn.u_add_v(...))` 使用
+
+* 操作机制
+
+  * `fn.u_add_v('el', 'er', 'e')`会对**每条边**的源节点特征('el')和目的节点特征('er')进行相加
+
+  * 这个操作是**逐边(edge-wise)**执行的，而不是在全局张量上操作
+
+  * 它看起来是针对点的操作（其实看起来也不是），但其实是**针对边的操作**，eg，当形状不匹配时如
+
+    * `el.shape = [2,3,1]`，`er.shape = [4,3,1]`的第一个维度不同
+
+      但DGL会根据边的实际**连接关系**，为每条边选取对应的源节点和目的节点特征进行相加
+
+      最终输出的'e'特征的形状会是`[num_edges, 3, 1]`
+
+  * 在 `g.apply_edges` 的配合下，最终将特征 `'e'`  存储到 `g.edata['e']` 中
+
+### [`fn.u_mul_e`](https://www.dgl.ai/dgl_docs/generated/dgl.function.u_mul_e.html)
+
+* 操作机制
+  * `fn.u_mul_e` 计算 **源节点特征 (`u`)** 和 **边特征 (`e`)** 的逐元素乘积，并将结果作为消息传递到目标节点。
+
+
 ## dgl.nn
 
 ### 异构图学习模块（重点学习）
@@ -212,6 +246,39 @@
 这是一个通用的卷积模块，用于在异构图上执行卷积操作。异构图中的不同类型的节点和边需要特定的卷积操作，这个模块允许用户自定义这些卷积方式，以便在不同类型的节点和边上进行处理。
 
 * 理解聚合到底是针对什么聚合（场景需要清楚），理解其 `forward`函数在什么时候触发？又具体做了什么？输入有两种形式，输入节点的特征，可以是字典（`dict[str, Tensor]`）形式，或者在某些情况下为元组（`tuple`），如果是元组，它将被视为源节点和目标节点特征的对。
+
+* 理解下源码（知道流程）==一定要通透==
+
+  * 复现一下这个代码，==一定要通透！==
+  
+  * `init(self, mods, aggregate = "sum")` 在干麻？
+    
+    * 将异构图不同的边类型与对应的卷积模块这一字典封装到 `nn.ModuleDict`中：`self.mods = nn.ModuleDict(mods)`（`mods` 有两种传入方式：（1）三元组（2）直接谓词传入）
+    * 之后再处理一下聚合模块。
+    
+  * `forward(self, g, inputs, mod_args = None, mod_kwargs = None)`在干麻？
+    
+    * （一）两种方法传入`inputs`字典（1）直接传入节点类型及其对应的二维`Tensor`（数量，特征），此时 `inputs` 是一个字典（2）传入一个 `tuple` ，分别代表源点 `src` 和 汇点的 `dst`。（此时 `inputs` 是一个元组，里面存放着两个字典）
+    * 比较关键（1）首先遍历规范化类型边，并通过 `rel_graph = g[stype, etype, dtype]` **获取子图**，若传入的 `src` 属于该子图的一部分则（2）调用 `etype` 对应的卷积模块在该子图 `rel_graph` 上进行对应的图卷积操作，**注意**：我们传入是通过 `tuple`即`(inputs[stype], outputs[stype])` 传入具体的图卷积中（如`GAT`）（3）得到边类型为 `etype` 的情况下**汇点 `dst` 的特征**（4）最终通过 `init` 过程中传入的 `aggregate` 对不同边类型 `etype` 下得到的特征进行聚合！
+    
+  * 一些细节
+  
+    * `str(src_type, rel_type, dst_type)` 这样写是不支持的。这不是 `str()` 的合法用法，因此 Python 会抛出 `TypeError`。但是我们可以鸡贼地这样处理一下 `tmp  = (src_type, rel_type, dst_type)` 然后再 `str(tmp)` 就可以处理了~（当然源码并不是这样写得）
+    * 在 `init` 过程中
+      * `nn.ModuleDict` 并不支持 `get()` 方法 （`dict.get()` 方法是 Python 字典 (`dict`) 的一个内置方法，用于根据键获取对应的值，**并允许在键不存在时返回默认值，而不会引发 `KeyError`。** 例如：`dict.get(key, default = None)`），因此，为了防止使用 `nn.ModuleDict` 去查找不存在的边引发 `keyError`, 源码中维护了两个 `dict`。`self.mod_dict` 直接存了原始的 `mods`，用于 `get()` 方法查询（避免 `ModuleDict` 没有 `get()`）
+      * 有一个解决 0 入度节点机制
+      * 定义聚合方式，貌似是一个黑盒
+  
+    * 在 `forward` 过程中
+      * 记得处理对应的模型参数 `mod_args` 与 `mod_kwargs` 
+    
+    * ==为什么要使用子图`rel_graph`传入卷积模块？==你可能会认为是为了节省计算资源，但核心原因并不是这个
+      * 为了节省计算资源
+      * 通过 `rel_graph = g[stype, etype, dtype]`  处理的图其实只有一种边类型的，那么它在模块中就不是异构图而是同构图了！这在我们自定义编写卷积模块是非常方便，比如当我们在模块内部写 `graph.apply_edges(fn.u_add_v('el', 'er', 'e'))` 就不需要特地针对异构图指定  `etype` 了
+* ==自定义卷积模块需要注意的点（重点！！）==
+  
+  * 一定需要明确的是，若我们使用 `dgl.nn.HeteroGraphConv` 来管理不同的边类型的图卷积，那么进入图卷积的特征输入 `h` 一定是一个 `tuple` 类型，这是 `dgl.nn.HeteroGraphConv` 在 `forward` 过程中自动帮我们处理好的，`tuple` 中分别装得是 `src_feat` 和 `dst_feat` 的 `tensor`！也就是说在若我们在使用 `dgl.nn.HeterGraphConv` 的同时若要自定义卷积模块，那么我们必须将输入以 `tuple` 的形式设置。
+
 
 #### [线性变换 `HeteroLinear`](https://www.dgl.ai/dgl_docs/generated/dgl.nn.pytorch.HeteroLinear.html)
 
@@ -243,7 +310,7 @@
 
 ## GAT
 
-### 理解并熟悉GAT注意力分数 $e_{ij}=LeakyReLU(\alpha \top [Wh_{i} || Wh_{j}])$ 的计算流程
+### 理解并熟悉GAT注意力分数 $e_{ij}= \text{LeakyReLU}(\alpha \top [Wh_{i} || Wh_{j}])$ 的计算流程
 
 #### 逐元素相乘 + 求和 与 拼接 + 线性变换是等价的
 
@@ -481,5 +548,14 @@
 
 
 
+### 理解每个过程中的维度与形状到底是怎么样的
+
+* ==建议自己调试一遍并且自己实现一遍，融汇贯通==
+
+* 形状的理解（配合 `dgl.nn.HeteroGraphConv` 使用的情况下）：
+
+  * 输入 `(src_feat_dim, dst_feat_dim), dst_out_feat_dim, num_heads`
 
 
+  * 输出的维度 $(N', \text{num of heads}, feat\_out)$（未经 `aggreagte` 处理的情况下）
+    $N'$ 表示这一轮（一般对应一个子图）的 `dst` 的数量；$feat \_ out$ 表示输出的特征维度
