@@ -650,5 +650,62 @@
       return c
   ```
 
+
+## 梯度裁剪
+
+* **强烈推荐**看这[一篇](https://zhuanlan.zhihu.com/p/99953668)通过感受其例子来加深理解
+
+  ==自己写代码去验证一下== （get）
+
+梯度裁剪（Gradient Clipping）是一种防止梯度爆炸的优化技术，它可以在**反向传播过程中**对梯度进行**缩放或截断**，使其保持在一个合理的范围内。梯度裁剪有两种常见的方法：
+
+（1）按照梯度的绝对值进行裁剪，即如果梯度的绝对值超过了一个阈值，就将其设置为该阈值的符号乘以该阈值。
+（2）按照梯度的范数进行裁剪，即如果梯度的范数超过了一个阈值，就将其按比例缩小，使其范数等于该阈值。例如，如果阈值为1，那么梯度的范数就是1。
+在PyTorch中，可以使用 `torch.nn.utils.clip_grad_value_(model.parameters(), clip_value = 0.5)` 和 `torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = 10, norm_type = 2)` 这两个函数来实现梯度裁剪，它们都是在梯度计算完成后，更新权重之前调用的。
+
+* 防止梯度太大导致步子跨得太大而错过损失函数最小值
+
+* 工作流程
+  ```
+  outputs = model(data)：前向传播，计算模型的输出。
+  loss = loss_fn(outputs, target)：计算损失函数。
+  optimizer.zero_grad()：清零所有参数的梯度缓存。
+  loss.backward()：反向传播，计算当前梯度。
+  nn,utils.clip_grad_norm_(model.parameters(), max_norm=20, norm_type=2)：对梯度进行裁剪，防止梯度爆炸。
+  optimizer.step()：更新模型的参数。
+  ```
+
+* 何时需要梯度裁剪
+
+* （1）深度神经网络：深度神经网络，特别是RNN，在训练过程中容易出现梯度爆炸的问题。这是因为在反向传播过程中，梯度会随着层数的增加而指数级增大。
+
+  （2）训练不稳定：如果你在训练过程中观察到模型的损失突然变得非常大或者变为NaN，这可能是梯度爆炸导致的。在这种情况下，使用梯度裁剪可以帮助稳定训练。
+
+  （3）长序列训练：在处理长序列数据（如机器翻译或语音识别）时，由于序列长度的增加，梯度可能会在反向传播过程中累加并导致爆炸。梯度裁剪可以防止这种情况发生。
+
+  需要注意的是，虽然梯度裁剪可以帮助防止梯度爆炸，但它不能解决梯度消失的问题。对于梯度消失问题，可能需要使用其他技术，如门控循环单元（GRU）或长短期记忆（LSTM）网络，或者使用残差连接等方法。
+
+* 源码如下
+  ```python
+  def clip_grad_value_(parameters, clip_value):
+      r"""Clips gradient of an iterable of parameters at specified value.
+      Gradients are modified in-place.
   
+      Arguments:
+          parameters (Iterable[Tensor] or Tensor): an iterable of Tensors or a
+              single Tensor that will have gradients normalized
+          clip_value (float or int): maximum allowed value of the gradients.
+              The gradients are clipped in the range
+      """
+  
+      if isinstance(parameters, torch.Tensor):
+          parameters = [parameters]
+      clip_value = float(clip_value)
+      for p in filter(lambda p: p.grad is not None, parameters):
+          p.grad.data.clamp_(min=-clip_value, max=clip_value)
+  ```
+
+  
+
+
 

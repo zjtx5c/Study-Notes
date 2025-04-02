@@ -40,7 +40,9 @@
 
   当我尝试进行如上操作时，被报错了。原因在于 `torch.tensor()` 并不是 `nn.Module` 子类，而是 `Tensor()` 的子类。`nn.ModuleList()` 中（只能包含）需要传入的是类似于 `nn.Linear()`,`nn.ReLU` 等 `nn` 。而这类东西它们的参数能够被自动注册且可以计算梯度，即能被`parameters()` 方法识别与优化器更新，但是 `Tensor` 类不具备这个功能。
 
-* ```python
+  
+  
+  ```python
   layers = nn.ModuleList([  # 使用 ModuleList
       nn.Linear(10, 20),
       nn.ReLU(),
@@ -48,14 +50,24 @@
       nn.Parameter(torch.tensor(3.0))
   ])
   ```
-
+  
   我在此进行了尝试，仍然收到了同上述一样的报错。**这是因为 `nn.Parameter` 并不是 `nn.Module`  的子类，`nn.Parameter` 只是一个可训练的 `Tensor`** 。`nn.Parameter` 是 **`torch.Tensor` 的子类**，它的唯一作用是**告诉 PyTorch 这个 `Tensor` 需要被训练**，**它不包含 `forward()` 逻辑，也不存储子模块，所以不是 `nn.Module`**。
-
+  
   而 `nn.Module` 是一个容器：`nn.Module` 主要用于**管理** `nn.Linear()`、`nn.Conv2d()` 等**包含权重**的层，并且它可以**嵌套**其他 `nn.Module`，形成完整的模型。
-
+  
   `nn.Module` 有 **`forward()` 方法**，可以定义前向传播的计算逻辑。
-
+  
   `nn.Parameter` 只有作为 `nn.Module` 的 **属性**（比如 `self.param = nn.Parameter(...)`），才会被 `parameters()` 识别。
   
-  
+  如果 `nn.Parameter` **并未**添加到模型的 `parameters()` 中，而**只是作为中途计算的一部分**，它将 **不会** 被视为模型的可训练参数，且不会通过反向传播进行更新。它的效果实际上等同于一个普通的 **有梯度的 Tensor**，而不是一个真正的可训练参数。
+
+* 发生异常: NotImplementedError exception: no description（太蠢了这个BUG）
+
+  `NotImplementedError` 是 Python 中的一种错误，它通常表示某个方法或函数在代码中被声明了，但没有实现。也就是说，虽然该方法被调用了，但它的具体实现缺失了。
+
+  ```python
+  loss_1 = self.loss_eta1 * self.loss_1_fcn(embed_important, embed_normal)
+  ```
+
+  长话短说，报错的原因是我的 `self.loss_1_fcn` 的 `forward` 拼写错了（😂）
 
