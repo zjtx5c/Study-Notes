@@ -226,7 +226,7 @@
 
 * 关键细节
 
-  * 权重初始化：默认使用均匀分布 $\mathcal{U}(-\sqrt k, \sqrt k), k = 1 / in\_feates$，其中 
+  * 权重初始化：**默认使用均匀分布** $\mathcal{U}(-\sqrt k, \sqrt k), k = 1 / in\_feates$，即我们**不需要显示初始化**
   * 若禁用偏置，则为 $y = xW^{\top}$
   * 高维处理：`nn.Linear` 会自动支持更高维度的输入（如 3D 张量），**仅对最后一维做线性变换**
 
@@ -417,54 +417,109 @@
 
 * 变换操作
 
+  * `torch.stack()`	**这个在堆叠操作中是比较难理解的**（比较难想象）
+  
+    ==堆叠的时候按照维度将这些元素列出来，然后 `a` 与 `b` **对应的头或批次中的元素**一一堆叠，**用逗号隔开**，结束后用 `[]` **包裹升维**（表示堆叠结束），**不同维度之间也用逗号隔开**。==
+  
+    功能：用于沿着新的维度连接张量的函数（将一系列张量沿着一个新的轴进行堆叠）。它类似于 `torch.cat`，但是 `torch.stack` 会在指**定的维度上增加一个新的维度**（默认 `dim = 0`），而 `torch.cat` 是在现有的维度上拼接张量（默认也是沿着 `dim = 1` 进行拼接）。
+  
+    eg: 比如说下面分别是一个张量 `a`, `b`
+  
+    ```python
+    tensor([[0, 1, 2],
+            [3, 4, 5]]) 
+     tensor([[ 7,  8,  9],
+            [10, 11, 12]])
+    ```
+
+    我们使用 `torch.stack([a, b], dim = 0)` 这里 `dim = 0` 是**额外**在**最外面加一个维度**，可以这样感受一下 `[a, b]`，其中 `a` 与 `b` 之间用逗号隔开
+
+    ==其实这个操作 `torch.stack([a, b], dim = 0)` 等价于 `torch.cat([a.unqueeze(0), b.unsqueeze(0)], dim = 0)`==
+  
+    最后变成这样：
+  
+    ```python
+    tensor([[[ 0,  1,  2],
+             [ 3,  4,  5]],
+    
+            [[ 7,  8,  9],
+             [10, 11, 12]]])
+    ```
+  
+    当然，`dim` 还可以指定其他维度，比如说 `dim = 1`，可以想象一下它张什么样子？有没有什么别的实际意义？和 `cat` 的区别是什么？
+  
+    下面均是 `torch.cat()` 操作，`dim` 分别为0, 1, 2
+  
+    ```python
+    tensor([[[ 0,  1,  2],
+             [ 3,  4,  5]],
+    
+            [[ 7,  8,  9],
+             [10, 11, 12]]])
+    tensor([[[ 0,  1,  2],
+             [ 7,  8,  9]],
+    
+            [[ 3,  4,  5],
+             [10, 11, 12]]])
+    tensor([[[ 0,  7],
+             [ 1,  8],
+             [ 2,  9]],
+    
+            [[ 3, 10],
+             [ 4, 11],
+             [ 5, 12]]])
+    ```
+  
+    
+  
   * `torch.reshape()`
     功能：变换张量的形状。当张量**在内存中是连续**时，返回的张量和原来的张量共享数据内存，改变一个变量时，另一个变量也会被改变。
-
+  
     * ==一定要注意==：在进行高维 `reshape` 的操作，一定要确保操作是安全的，比如在操作之前的张量相较于操作之后的张量要多一维或者少一维，其他维度保持一致，否则可能达不到预期的效果。
-
+  
       **reshape 前后张量的元素数量必须一致，并且要考虑内存布局和维度的变化**。
-
+  
       当我们希望张量的内存布局是连续的，或者需要用到 `view` 这种操作时，可以调用 `contiguous()` 来确保它是连续的。这能避免由于内存布局不连续导致的一些潜在错误或意外行为。
-
+  
     * 应用场景
-
+  
       **数据展平**（Flatten），如 `torch.reshape(x, (-1,))`。
-
+  
       **调整形状以适配模型输入**，如 `torch.reshape(x, (batch_size, channels, height, width))`。
-
+  
       **与 NumPy 的 `.reshape()` 类似，适用于改变张量形状但不改变数据本身**。
-
+  
     * 提醒：**新维度应该有实际的物理或语义上的==意义==**，否则可能会导致数据在计算过程中被错误使用。
-    
+  
       在改变形状时，确保数据排列不会影响计算逻辑。
-    
+  
       如果只是为了处理维度，可以用 `permute()` 或 `view()`，而不是盲目 `reshape()`。
-    
+  
   * `torch.transpose(input, dim0, dim1)`
     功能：交换张量的**两个维度**。常用于图像的变换，比如把`c*h*w`变换为`h*w*c`。也会配合广播机制**一起使用**
-
+  
     * `input`: 要交换的变量
-
+  
       `dim0`: 要交换的第一个维度
-
+  
       `dim1`: 要交换的第二个维度
-
+  
   * `torch.t(input)`
-
+  
     * 二维矩阵的转置
-
+  
   * `torch.squeeze(input, dim)`
-
+  
     * 压缩长度为1的维度
-
+  
     * 应用场景：
-
+  
       **去掉多余的维度**，尤其是在处理神经网络的输出时。
-
+  
       **匹配输入格式**，有些 API 可能要求特定维度的张量。
-
+  
   * `torch.unsqueeze(input, dim)`
-
+  
     * 功能：根据 dim 扩展维度，长度为 1。
   
     * 应用场景：
@@ -554,6 +609,7 @@
       > ```
       >
       > `'bmn,bnp->bmp'` 中的 $b$ 代表批量大小，$mn$ 和 $np$ 分别表示矩阵的维度，最终结果是形状为 $(b, m, p)$ 的张量。
+  
 
 ### 张量的数学运算
 
@@ -702,7 +758,7 @@
   print(cosine_sim_matrix)
   ```
 
-  ### 解释：
+  **解释：**
 
   - `tensor.unsqueeze(1)` 将原始的 `n x n` 矩阵扩展为大小为 $n \times 1 \times n$ 的张量，使得每一行变成一个单独的向量。
   - `tensor.unsqueeze(0)` 将原始的 `n x n` 矩阵扩展为大小为 $1 \times n \times n$ 的张量，使得每一列变成一个单独的向量。
@@ -715,6 +771,8 @@
     * 我们可以把**矩阵**视为一组向量，`unsqueeze` 操作的意义就在于将这些向量“包装”成一个批（batch）。通常在深度学习中，我们习惯将多个样本（比如向量）放在一个批量中处理。所以 `unsqueeze` 在某种程度上就是在告诉框架：“这些是独立的向量，接下来我要按批量进行操作。”
 
       `tensor.unsqueeze(0)` 就是将原始的 `n x n` 矩阵扩展为大小为 $1 \times n \times n$ 的张量。将其中的 $n \times n$ 当成一个批次来看待，第一维的 1 接下来会利用广播机制；`tensor.unsqueeze(1)` 可以认为现在有 $n$ 个批次，每个批次中有一个二维向量。
+  
+* 针对 `RGTN` 那个框架，如何使用**多头的思想**解决论文中的公式（7）~公式（10）
 
 ### 其他问题
 
@@ -937,3 +995,96 @@
 
 
 
+## 采样技术
+
+### `torch.multinomial`
+
+`torch.multinomial` 是 PyTorch 中用于从给定的一维概率分布中 **无放回（或有放回）地随机采样** 的函数，常用于需要按概率采样索引的任务中，比如负采样、采样子集等。
+
+* 函数原型
+
+```python
+torch.multinomial(input, num_samples, replacement = False, *, generator = None, out = None) -> Tensor
+```
+
+* 参数说明：
+
+**input**：一维或二维的张量，表示每个元素的概率权重，必须是非负的（可以为 0），不需要归一化。
+
+**num_samples**：要采样的样本数量。
+
+**replacement**：是否**有放回**采样。默认为 `False`，表示**无放回**。
+
+**generator**：可选，用于控制随机数生成器。
+
+**out**：可选，输出张量。
+
+* 返回值：
+
+返回一个长整型张量（`LongTensor`），表示所采样元素的索引。
+
+如果所有的权重（`weights`）都相等，或者说每个元素的值都是 1，那么就相当于对每个样本进行 **等概率的随机采样**，即每个样本被采到的概率相等。
+
+* eg：
+
+```python
+weights = torch.tensor([1, 1, 1, 1, 1])
+samples = torch.multinomial(weights, 3, replacement=False)
+print(samples)
+```
+
+* **针对批量采样（一对多），我们有放回地采样（要有批的思想）**
+
+可以参考这个写法（**是用于计算 LTR 损失的采样过程**）
+
+```python
+def list_loss(y_pred, y_true, list_num=10, eps=1e-10):
+    '''
+    y_pred: [n_node, 1]
+    y_true: [n_node, 1]
+    '''
+    n_node = y_pred.shape[0]
+
+    ran_num = list_num - 1
+    indices = torch.multinomial(torch.ones(n_node), n_node*ran_num, replacement=True).to(y_pred.device)
+
+    list_pred = torch.index_select(y_pred, 0, indices).reshape(n_node, ran_num)
+    list_true = torch.index_select(y_true, 0, indices).reshape(n_node, ran_num)
+
+    list_pred = torch.cat([y_pred, list_pred], -1) # [n_node, list_num]
+    list_true = torch.cat([y_true, list_true], -1) # [n_node, list_num]
+
+    list_pred = F.softmax(list_pred, -1)
+    list_true = F.softmax(list_true, -1)
+
+    list_pred = list_pred + eps
+    log_pred = torch.log(list_pred)
+
+    return torch.mean(-torch.sum(list_true * log_pred, dim=1))
+```
+
+
+
+### `torch.index_select`
+
+`torch.index_select` 是 PyTorch 中的一个函数，用于从输入张量中**根据指定的索引选取指定维度上的元素**。它允许你通过给定一个索引数组来选择输入张量中相应位置的元素。
+
+* 函数原型
+
+```python
+torch.index_select(input, dim, index) -> Tensor
+```
+
+* 参数说明：
+
+**input**：输入的张量。
+
+**dim**：沿着哪个维度进行索引操作（例如，对于二维张量，`dim=0` 是选择行，`dim=1` 是选择列）。
+
+**index**：一个长整型张量，表示你要选择的索引。该张量的形状**必须是 1D**，且其中的元素是要选择的索引。
+
+* 返回值
+
+返回一个新的张量，包含了根据给定索引选择的元素。
+
+* eg: 我们从二维张量中按行索引选择

@@ -253,6 +253,26 @@
 * 操作机制
   * `fn.u_mul_e` 计算 **源节点特征 (`u`)** 和 **边特征 (`e`)** 的逐元素乘积，并将结果作为消息传递到目标节点。
 
+### [`fn.v_dot_u`](https://www.dgl.ai/dgl_docs/generated/dgl.function.v_dot_u.html)
+
+* 操作机制
+
+  * `fn.v_mul_u` 计算 **汇点特征 (`v`)** 和 **源点特征 (`u`)** 的点积，在最后一维计算。
+
+* `g.apply_edges(fn.v_dot_u('k', 'k', 't'))`  的等价实现是：
+
+  ```python
+  def edge_func(edges):
+      src_k = edges.src['k']
+      dst_k = edges.dst['k']
+      # 因为特征的维度有时候不是一维的，可能会带有头，所以我们不使用 `torch.dot` 而是使用 `torch.mul` 逐元素相乘再求和的方式来计算每个维度上的点积
+      t = torch.mul(src_k, dst_k).sum(dim = -1, keepdim = True)
+      return {'t': t}
+  g.apply_edges(edge_func)
+  ```
+
+  
+
 
 ## dgl.nn
 
@@ -322,6 +342,33 @@
 #### [`TypedLinear`](https://www.dgl.ai/dgl_docs/generated/dgl.nn.pytorch.TypedLinear.html#typedlinear)
 
  
+
+
+
+## dgl.ops
+
+在 DGL 中，`dgl.ops` 和 `dgl.function` 都提供了用于图操作的功能，但它们有一些关键的区别：
+
+* **`dgl.ops`**：提供的是一些底层的、常用的图操作函数，通常用于对图**进行直接的操作或计算**。例如，`edge_softmax`、`scatter_add`、`segment_sum` 等。这些操作大多是图相关的数值操作，或者是一些高效的聚合、归一化和计算功能。通常，它们用于图神经网络（GNN）的实现中，执行消息传递、特征聚合等操作。
+
+  **`dgl.function`**：提供的是在消息传递机制中更高层次的操作功能，**允许用户自定义消息传递函数的行为**。`dgl.function` 允许你定义消息的计算、聚合的方式以及节点或边的更新方式。通常，`dgl.function` **提供的是框架内部的功能封装，更多地用于定义图神经网络的模型结构**。
+
+### [`edge_softmax()`](https://www.dgl.ai/dgl_docs/generated/dgl.nn.functional.edge_softmax.html#dgl.nn.functional.edge_softmax)
+
+$$
+a_{ij}=\frac{\exp (z_{ij})}{\sum_{k \in \mathcal{N(i)}} \exp(z_{ik})}
+$$
+
+默认情况下，边 softmax 由**目标节点规范化**
+
+*  貌似 `from dgl.nn.functional import edge_softmax` 和 `from dgl.ops import edge_softmax` 这两份 `edge_softmax` 的**源码都是一样的**
+* 直接看官网的例子，照着敲一敲，需要注意以下几点
+  * 去看源码
+  * 理解参数 `norm_by`
+  * 理解维度
+* 异构图上的边归一化
+
+
 
 # Models
 

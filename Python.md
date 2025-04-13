@@ -169,3 +169,87 @@
 **`map(torch.tensor, (A, B, C))`**: 这部分代码会对 `(A, B, C)` 这个元组中的每个元素应用 `torch.tensor()` 函数。换句话说，它会将 `A`、`B` 和 `C` 分别转换成 PyTorch 的 tensor（张量）对象。`map` 会依次应用 `torch.tensor()` 函数到每个元素上。
 
 **`A, B, C = ...`**: 这部分代码是对 **`map` 返回的结果进行解包**，将返回的张量分别赋值给 `A`、`B` 和 `C`。
+
+
+
+
+
+## 数据结构（算法相关）
+
+### `collections` 模块
+
+Python 中的 `collections` 模块提供了许多额外的**容器数据类型**，这些类型可以帮助我们更高效地处理一些常见的数据结构任务。下面是 `collections` 模块中几个重要类的简要介绍：
+
+#### `deque`
+
+`deque`（双端队列）是 Python `collections` 模块中的一个类，它提供了一个高效的、双端操作的队列。与常规的队列（如`queue.Queue`）不同，`deque`可以在**两端快速地进行插入和删除**操作，**因此它在很多场景下比常规列表更高效**，尤其是当你需要频繁从队列两端添加或删除元素时。
+
+* 常用方法
+
+> **`append(x)`**：将元素 `x` 添加到右端。
+>
+> **`appendleft(x)`**：将元素 `x` 添加到左端。
+>
+> **`pop()`**：从右端删除并返回一个元素。
+>
+> **`popleft()`**：从左端删除并返回一个元素。
+>
+> **`extend(iterable)`**：将可迭代对象 `iterable` 中的元素添加到右端。
+>
+> **`extendleft(iterable)`**：将可迭代对象 `iterable` 中的元素添加到左端。
+>
+> **`rotate(n)`**：将队列元素旋转 `n` 位。若 `n` 为正数，右移；若为负数，左移。
+>
+> **`len(deque)`**：获取元素的数量
+>
+> 判断队列是否为空（1）使用 `len` （2）使用布尔值
+
+#### `defaultdict`
+
+`defaultdict` 是 `dict` 的一个子类，能够提供默认值。在正常的字典中，如果你访问一个不存在的键，会抛出 `KeyError` 异常。而 `defaultdict` 可以为不存在的键提供一个默认值，避免抛出异常。
+
+==若针对的是 `set`，那么默认值是 `{}`，即空集==
+
+```python
+from collections import defaultdict
+d = defaultdict(int)  # 默认值是 0
+d['a'] += 1
+d['b'] += 2
+print(d)  # 输出: defaultdict(<class 'int'>, {'a': 1, 'b': 2})
+```
+
+也可以这样使用
+
+```python
+d = defaultdict(deque)
+d = defaultdict(list)
+```
+
+
+
+
+
+## 算法
+
+### `bisect`模块（当作二分用）
+
+可以用来在已排序的列表中快速定位元素的插入位置。主要用于处理有序序列，以保持序列的有序性。
+
+> **`bisect.bisect_left(a, x, lo=0, hi=len(a))`**
+>
+> - 返回 `x` 应该插入的位置，保持列表 `a` 的有序性。
+> - 如果 `x` 已经存在，返回的是 `x` 的最左侧位置。
+> - `lo` 和 `hi` 是可选的，表示查找的范围。
+>
+> **`bisect.bisect_right(a, x, lo=0, hi=len(a))`** 或 **`bisect.bisect(a, x, lo=0, hi=len(a))`**
+>
+> - 返回 `x` 应该插入的位置，保持列表 `a` 的有序性。
+> - 如果 `x` 已经存在，返回的是 `x` 的最右侧位置（即插入位置位于 `x` 右边）。
+>
+> **`bisect.insort_left(a, x, lo=0, hi=len(a))`**
+>
+> - 向已排序的列表 `a` 中插入 `x`，保持有序，插入 `x` 到最左侧位置。
+>
+> **`bisect.insort_right(a, x, lo=0, hi=len(a))`** 或 **`bisect.insort(a, x, lo=0, hi=len(a))`**
+>
+> - 向已排序的列表 `a` 中插入 `x`，保持有序，插入 `x` 到最右侧位置。
