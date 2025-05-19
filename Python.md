@@ -1,4 +1,4 @@
-## 一些内置函数
+## 一些内置函数与方法
 
 ### `fliter()`
 
@@ -172,6 +172,28 @@
 
 
 
+### `.bit_length()`
+
+在 **Python** 中，`int.bit_length()` 是一个非常实用的方法，用于返回一个整数的**二进制表示中所需的最小位数**（不包括符号位和前导零）。
+
+* 例子见下：
+
+```python
+print((0).bit_length())   # 0
+print((1).bit_length())   # 1 -> 0b1
+print((5).bit_length())   # 3 -> 0b101
+print((16).bit_length())  # 5 -> 0b10000
+print((255).bit_length()) # 8 -> 0b11111111
+```
+
+负数行为
+
+```python
+print((-5).bit_length())  # 3 -> 0b101
+```
+
+
+
 
 
 ## 数据结构（算法相关）
@@ -226,6 +248,71 @@ d = defaultdict(list)
 ```
 
 
+
+### `sortedcontainers` 模块
+
+`sortedcontainers` 库提供了几个常用且高效的数据结构，它们都与 ==**自动排序**== 相关。以下是一些主要的数据结构和它们的功能：
+
+####  **`SortedList`**
+
+- **作用**：提供一个自动保持有序的列表。
+- **常用操作**：支持插入（`add`），删除（`remove`），索引访问（`[]`），切片（`[:]`），以及二分查找操作（`bisect_left`, `bisect_right`）。
+- **时间复杂度**：插入和删除操作是 `O(log n)`，访问元素是 `O(1)`，切片操作是 `O(k)`（k 是切片的大小）。
+
+> 适用于：需要频繁查询、删除和插入的场景，同时保证列表有序。且支持直接的索引下标操作，非常的方便。
+
+示例：
+
+```python
+from sortedcontainers import SortedList
+sl = SortedList([1, 2, 3])
+sl.add(4)  # 插入元素
+print(sl)  # [1, 2, 3, 4]
+sl.remove(2)  # 删除元素
+print(sl)  # [1, 3, 4]
+```
+
+#### **`SortedDict`**
+
+- **作用**：提供一个自动保持有序的字典。
+- **常用操作**：支持常规字典操作（如 `getitem`, `setitem`），但所有的键值对会自动保持键的有序性。
+- **时间复杂度**：插入和删除操作是 `O(log n)`，查询和更新是 `O(log n)`。
+
+> 适用于：需要字典的同时，还希望对键进行排序的场景。
+
+示例：
+
+```python
+from sortedcontainers import SortedDict
+sd = SortedDict({'a': 1, 'c': 3, 'b': 2})
+print(sd)  # {'a': 1, 'b': 2, 'c': 3}
+sd['d'] = 4
+print(sd)  # {'a': 1, 'b': 2, 'c': 3, 'd': 4}
+```
+
+#### **`SortedSet`**
+
+- **作用**：提供一个自动保持有序的集合（不允许重复元素）。
+- **常用操作**：支持插入、删除和查询操作，自动去重，所有元素按升序排列。
+- **时间复杂度**：插入、删除和查询操作都是 `O(log n)`。
+
+> 适用于：需要有序集合且不允许重复元素的场景。
+
+示例：
+
+```python
+from sortedcontainers import SortedSet
+ss = SortedSet([3, 1, 2, 2])
+print(ss)  # SortedSet([1, 2, 3])
+ss.add(4)
+print(ss)  # SortedSet([1, 2, 3, 4])
+```
+
+**特点：**
+
+- 这些数据结构都基于**平衡树（如红黑树）**，提供高效的有序插入、删除和查询操作。
+- 适用于需要频繁动态更新并保持排序的场景，比如在线排名、区间查询、滑动窗口等问题。
+- 提供了比普通 `list` 或 `dict` 更高效的排序和查找操作，尤其适用于较大的数据集
 
 
 
