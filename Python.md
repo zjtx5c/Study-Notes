@@ -194,6 +194,101 @@ print((-5).bit_length())  # 3 -> 0b101
 
 
 
+## 生成器
+
+生成器（**Generator**）是 Python 中的一种用于 **惰性迭代** 的特殊对象，==可以在每次迭代时“生成”一个值，而不是一次性返回所有值。==相比列表等结构，它更节省内存，适用于 **大规模数据或无限序列** 的处理。
+
+一句话总结：生成器是一种特殊的迭代器，它通过 `yield` 表达式逐个生成值，每次暂停执行，等待下一次调用继续执行。
+
+### 使用场景
+
+**大规模数据处理（节省内存）**
+
+```python
+def read_large_file(file_path):
+    with open(file_path) as f:
+        for line in f:
+            yield line.strip()
+```
+
+**无限序列生成**
+
+```python
+def infinite_counter():
+    n = 0
+    while True:
+        yield n
+        n += 1
+```
+
+
+
+### 与列表推导式的对比
+
+列表推导式：**立即**生成所有元素，保存在内存中；
+
+生成器：使用 `yield` **暂停函数执行**，**记住当前状态**；
+
+* 每次 `yield` 后，函数的执行都会**暂停在当前行**，并保留现场（局部变量 `a, b` 的值），等下次 `next()` 调用时（可能是显式调用也可能是隐式调用），从暂停点**恢复执行**。
+  * 显式调用是直接 `next()`
+  * 隐式调用可能会包含在 `for x in gen()`  这个过程中
+
+- 下一次迭代时，从上次 `yield` 的地方继续执行；
+- 当前值用完即丢弃，**不保留历史结果**；
+
+### 题目
+
+* 实现一个生成器函数 `fib_generator(n)`
+
+  请写一个生成器函数 `fib_generator(n)`，它能按顺序生成前 `n` 个斐波那契数（Fibonacci 数列），即：
+
+  ```python
+  0, 1, 1, 2, 3, 5, 8, 13, 21, 34, ...
+  ```
+
+  **要求：**
+
+  - 函数使用 `yield` 每次生成一个斐波那契数；
+  - 函数不返回列表，只是逐个产生数；
+  - 外部调用者用 `for` 循环或 `next()` 逐个访问这些数。
+
+```python
+def fib_generator(n):
+    a, b = 0, 1
+    for _ in range(n):
+        yield a
+        a, b = b, a + b
+```
+
+使用过程如下（这里在隐式调用 `next`）：
+
+```python
+gen = fib_generator(5)
+for x in gen:
+    print(x)
+```
+
+或（这里在显式调用 `next`）
+
+```python
+gen1 = fib_generator(5)
+print(next(gen1))
+print(next(gen1))
+print(next(gen1))
+print(next(gen1))
+print(next(gen1))
+```
+
+
+
+
+
+
+
+
+
+
+
 
 
 ## 数据结构（算法相关）
