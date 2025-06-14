@@ -257,21 +257,25 @@
 
 * 操作机制
 
-  * `fn.v_mul_u` 计算 **汇点特征 (`v`)** 和 **源点特征 (`u`)** 的点积，在最后一维计算。
+  * `fn.v_mul_u` 计算 **汇点特征 (`v`)** 和 **源点特征 (`u`)** 的点积，在最后一维计算（顺序不能乱）。
 
-* `g.apply_edges(fn.v_dot_u('k', 'k', 't'))`  的等价实现是：
+* `g.apply_edges(fn.v_dot_u('dst_k', 'src_k', 't'))`  的等价实现是：
 
   ```python
   def edge_func(edges):
-      src_k = edges.src['k']
-      dst_k = edges.dst['k']
+      src_k = edges.src['src_k']
+      dst_k = edges.dst['dst_k']
       # 因为特征的维度有时候不是一维的，可能会带有头，所以我们不使用 `torch.dot` 而是使用 `torch.mul` 逐元素相乘再求和的方式来计算每个维度上的点积
       t = torch.mul(src_k, dst_k).sum(dim = -1, keepdim = True)
       return {'t': t}
   g.apply_edges(edge_func)
   ```
 
+  特别要注意的是这里的 $v$ 要与 `dst_k` ，$u$ 要与 `src_k` 一一对应起来。
   
+  此外若特征为2维 `[H, D]`，那么执行 `fn.v_dot_u` 或者 `fn.u_dot_v` 的操作后，得到的 `t` 的 `shape` 为
+  
+  `[E, H, 1]`
 
 
 ## dgl.nn
@@ -367,6 +371,14 @@ $$
   * 理解参数 `norm_by`
   * 理解维度
 * 异构图上的边归一化
+
+注意该函数的输入要求。DGL 的 `edge_softmax` 接收形状为 `[num_edges, num_heads, 1]` 或 `[num_edges, 1]` 的张量（最后一维得是标量，因为要做的是归一化操作）：
+
+- 它会在 **以每个目标节点为单位** 的边集合中，对该维度上的注意力值做 softmax。
+
+- 通常在多头 attention 中，我们的注意力是 `[num_edges, num_heads]`，每个 head 一个值，但 `edge_softmax` 需要最后一维是 `1`（标量）用于 softmax 操作。
+
+  因此，若想要通过 `t = g.edata.pop("attn")` 的方式取出来，需要关注下其形状：`[E, H, 1]` 或者 `E, 1` ，我们可以使用 `.sum(dim = -1)` 的操作将其变成 `[E, H]` 或者 `[E,]`
 
 
 
