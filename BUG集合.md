@@ -23,6 +23,49 @@
     发现几乎都是 `gat_layers0` 或 `gat_layers1` 中的 `attn_l`, `attn_r`, `attn_m`, `.bias` 与 `fc.weight` 断裂 且都与**边嵌入**相关！！！！。于是顺腾摸瓜终于被我排查出了错误，原来是在 `MultiImportModel` 中传入 `edge_weight` 时候， `edge_weight` 并不是可学习的张量。解决方法为将原先`models` 模块中的 `edge_weight_dic = {etype: g.edges[etype].data['weight'] for etype in g.etypes}` 修改为 `edge_weight_dic = {etype: nn.Parameter(g.edges[etype].data['weight']) for etype in g.etypes}`
   * 花费时间 一天+一上午
   * ==后续：又在张量的问题上出错了，以后的实验一定要好好检查哪些应该被设置成**叶子张量**== （导致这点出现的原因是，我们忽略了我们的嵌入是自己构造的，而一般的嵌入都是通过 `word2vec` 等算法生成的，生成过程中会使用到 `nn.Module` 模块，它们会自动将对应的数据注册为叶子张量）。
+  
+* 在复现 EASING 这个论文过程中。我发现 TMDB5K 仅在边数比 FB15K 大的情况下（所需显存大概是后者的四倍！）（未完，搁置）
+
+  `FB15K` 数据情况：
+
+  ```python
+  ----Data statistics------'
+            #Edges 592213
+            #Unlabeled nodes 9883
+            #Train samples 1407
+            #Val samples 1411
+            #Test samples 1409
+  ```
+  
+  `TMDB5K` 数据情况：
+  
+  ```python
+  ----Data statistics------'
+            #Edges 761648
+            #Unlabeled nodes 3365
+            #Train samples 479
+            #Val samples 480
+            #Test samples 478
+  ```
+  
+  可以发现在实验时使用的 `FB15K` 的节点数量大约是 `TMDB5K` 的 3倍。而 `TMDB5K` 的边数仅是 `FB15K` 边数的
+  
+  1.3 倍。但是，在训练参数完全一致的情况下，`FB15K` 没有爆显存，`TMDB5K` 居然爆显存了。这是为什么？
+  
+  结合了自己的思考以及问了 `GPT` 大概有了眉目。~~问题大概率出在 graph transform 中的图聚合操作上。我们首先计算一下这两个数据集的平均度，前者为5992213 / 14110 ≈ 42.0： 后者为 761648 / 4802 ≈ 158.6。后者大约是前者的 3.78 倍。~~戳拉！！，根据报错提示，主要还是顶不住解码部分的显存。
+  
+  在进行边归一化操作时
+  
+  ```python
+  attn_score = self.attn_drop(edge_softmax(graph, attn_score.unsqueeze(-1), norm_by='dst'))  # → [E, H, 1]
+  ```
+  
+  > - 注意 `edge_softmax` **为了能按 dst 做归一化，需将数据展成稠密排序结构**
+  > - 它内部做了类似归一化操作，会生成临时 tensor 和梯度缓存？？
+  >
+  > **当平均度暴涨时**，每个目标节点需要对越来越多的边进行 softmax → 显存急剧增长（尤其在 `attn_drop` 和 `backward` 时）
+  >
+  > 直觉一点想就是，当平均度暴涨时，每个节点需要归一化更多的邻居，内存消耗更大。但是感觉也不至于爆啊
 
 ## Easy Bug
 
@@ -74,6 +117,8 @@
 * 有一个在 `pandas` 的框架上经过筛选操作之后使用 `.reshape()` 之后，发现 `data.shape` 居然会有 0 维，而且 `data ` 居然是 `None` 。这是什么原因？
 
   条件筛选这一块出错了，经过筛选之后数据变空了...这个错误实在是太蠢了...
+  
+  
 
 
 
