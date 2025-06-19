@@ -357,6 +357,46 @@ c.assign(2, pair<int, double>{});  // 就是 [(0, 0.0), (0, 0.0)]
 
 
 
+### 嵌套函数与辅助局部函数
+
+因为 **C++ 不允许在函数内部直接定义另一个函数**（即 **嵌套函数**）。但 Python 或 JavaScript 可以。所以在写力扣时我发现不能在里面写普通函数。。
+
+编译器会报错：
+
+> `error: cannot declare a function within another function`
+
+所以我们要使用局部辅助函数
+
+1. 使用 lambda 表达式（推荐）
+
+   - Lambda 可以访问外层函数的变量（通过 `[&]` 或 `[=]` 捕获）。
+   - Lambda 是局部对象，不会污染外部作用域。
+
+2. 改用类的成员函数
+
+   如果辅助函数较复杂，可以将其定义为类的**私有成员**函数：
+
+   ```cpp
+   class Solution {
+   private:
+       int calc_bitnum(int st) {  // ✅ 类成员函数
+           int cnt = 0;
+           while (st) cnt++, st &= (st - 1);
+           return cnt;
+       }
+   
+   public:
+       int maxProfit(...) {
+           int bits = calc_bitnum(5); // 直接调用
+           // ...
+       }
+   };
+   ```
+
+3. 使用 c++11 的 `std::function` （较少用）
+
+   这个比较重（以后再补充）
+
 ## 容器
 
 ### vector

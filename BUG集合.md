@@ -52,20 +52,67 @@
   
   1.3 倍。但是，在训练参数完全一致的情况下，`FB15K` 没有爆显存，`TMDB5K` 居然爆显存了。这是为什么？
   
-  结合了自己的思考以及问了 `GPT` 大概有了眉目。~~问题大概率出在 graph transform 中的图聚合操作上。我们首先计算一下这两个数据集的平均度，前者为5992213 / 14110 ≈ 42.0： 后者为 761648 / 4802 ≈ 158.6。后者大约是前者的 3.78 倍。~~戳拉！！，根据报错提示，主要还是顶不住解码部分的显存。
+  省流版：归根结底一句话：虽然我们真正用于训练且被我们所关注的节点数量只有不到10000（这里分别是9883和3365），但是我们实际用于训练的节点与边却是**整张图的节点与边**，当然边也是整张图的边。`FB15K` 数据的节点和边分别是14,951 与 592,213。但是 TMDB5K 整张图的节点与边分别是114,805 和 761,648。后者的节点数量约是前者节点数量的 8 倍。IMDB就更夸张了，节点是10倍，边是2倍！问题就出在这里，显存直接膨胀。
   
-  在进行边归一化操作时
+  最根本的还是应该根据报错信息来。报错信息最终递归到这一行：
   
   ```python
-  attn_score = self.attn_drop(edge_softmax(graph, attn_score.unsqueeze(-1), norm_by='dst'))  # → [E, H, 1]
+  s, u = self.unc_trans_layers[l](s, u)
   ```
   
-  > - 注意 `edge_softmax` **为了能按 dst 做归一化，需将数据展成稠密排序结构**
-  > - 它内部做了类似归一化操作，会生成临时 tensor 和梯度缓存？？
-  >
-  > **当平均度暴涨时**，每个目标节点需要对越来越多的边进行 softmax → 显存急剧增长（尤其在 `attn_drop` 和 `backward` 时）
-  >
-  > 直觉一点想就是，当平均度暴涨时，每个节点需要归一化更多的邻居，内存消耗更大。但是感觉也不至于爆啊
+  说明是在解码的 forward 过程出问题了！对应代码中的这个部分：
+  
+  ```python
+  def forward(self, s, u):
+      qs = self.w_qs(s).reshape(s.shape[0],self.heads_num,s.shape[1],self.heads_dim) # [B, heads_num, N, heads_dim]
+      ks = self.w_ks(s).reshape(s.shape[0],self.heads_num,s.shape[1],self.heads_dim) # [B, heads_num, N, heads_dim]
+      vs = self.w_vs(s).reshape(s.shape[0],self.heads_num,s.shape[1],self.heads_dim) # [B, heads_num, N, heads_dim]
+  
+      qu = self.w_qu(u).reshape(s.shape[0],self.heads_num,s.shape[1],self.heads_dim) # [B, heads_num, N, heads_dim]
+      ku = self.w_ku(u).reshape(s.shape[0],self.heads_num,s.shape[1],self.heads_dim) # [B, heads_num, N, heads_dim]
+      vu = self.w_vu(u).reshape(s.shape[0],self.heads_num,s.shape[1],self.heads_dim) # [B, heads_num, N, heads_dim]
+  
+      ua_s_attn = torch.matmul(qs / self.sqrt_d, ks.transpose(-2,-1)) # [B, heads_num, N, N]
+      ua_s_attn = F.softmax(ua_s_attn,dim=-1) # [B, heads_num, N, N]
+      ua_s = torch.matmul(ua_s_attn, vs).view(s.shape[0],s.shape[1],s.shape[2]) # [B, N, 2d]
+  
+      ua_u_attn = torch.matmul(qu / self.sqrt_d, ku.transpose(-2,-1))
+      ua_u_attn = F.softmax(ua_u_attn,dim=-1) # [B, heads_num, N, N]
+      ua_u = torch.matmul(ua_u_attn, vu).view(u.shape[0],u.shape[1],u.shape[2]) # [B, N, 2d]
+  
+      s_hat = self.layer_norm_s_1(s + ua_s) # [B, N, 2d]
+      s_output = self.layer_norm_s_2(s_hat + self.FFN_s(s_hat)) # [B, N, 2d]
+  
+      u_hat = self.layer_norm_u_1(u + ua_u) # [B, N, 2d]
+      u_output = self.layer_norm_u_2(u_hat + self.FFN_u(u_hat)) # [B, N, 2d]
+  
+      return s_output, u_output
+  ```
+  
+  这里的 `B` 就是整张图的节点数量。其实在原本的解码阶段显存是能够过的（将 `hidden_dim` 设置为 8 的情况下），但是在解码阶段凭空又多出了一个维度，并且按照附录的设置 `10` 就爆炸了。现在来计算一下到底差了多少。
+  
+  从节点角度看就是直接差8倍。粗模地计算了一层 `DJE layer`的显存大概是 600mb+（TMDB5K 数据）
+  
+  > | 模块                | 估算显存占用 |
+  > | ------------------- | ------------ |
+  > | Linear 输入输出 ×6  | ~220 MB      |
+  > | Attention matrix ×2 | ~175 MB      |
+  > | FFN + 残差输出 ×2   | ~220 MB      |
+  > | 总计                | **~615 MB**  |
+  
+  实际上我们有两层 DJE layer 且有两个模型加入训练，也就是说我们解码的显存大概有 615MB * 4 = 2.4GB.当然我们没有将 `backward、optimizer` 计算进去（这种杂七杂八的加进去大概也是 2.4GB）所以解码部分至少也需要4.8GB.（这个计算逻辑是合理的，因为我拿分别拿 d = 8 和 d = 16 代入验算了一下是符合实际情况的）。
+  
+  若将 $d$ 改成 4 呢？感觉显存是够用的呀？粗略地算了一下，解码部分大概只需要 2.3GB 显存了。应该是可以了呀。。。还是不行。
+  
+  稍微计算了一下，编码部分的显存大概为解码部分显存的 $\frac{1}{N}$ 而这里 $N = 10$
+  
+  考虑的改进办法
+  
+  1. 使用小 `batch` 分批处理
+  2. 使用 `float16` 精度
+  3. 缩小 `N` 的规模
+  
+  
 
 ## Easy Bug
 
