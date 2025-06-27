@@ -33,6 +33,36 @@
 
     `False`：表示图中不包含自环。
 
+
+
+## dgl.NID
+
+`dgl.NID` 是 DGL 中的一个**特殊保留键（reserved key）**，用于表示：**一个节点在原始图（parent graph）中的 ID**。
+
+* 为什么我们需要 `dgl.NID`？
+
+  在图神经网络的训练中，我们经常会从原图中：
+
+  1. 采样出一个子图
+  2. 构造一个 block （二部图）
+  3. 在 block 中进行消息传递（message passing）
+
+  但是，这时我面对的是**子图**或**block**的“局部图结构”，里面的节点编号是**局部编号**，**和原图不一致**！所以，为了能知道这些“局部节点”在原图中是谁，DGL 用 `dgl.NID` 来存储“它在原图中的编号”。例如（从 xxxdata 中获取）：
+
+  | 表达式                   | 作用                                              |
+  | ------------------------ | ------------------------------------------------- |
+  | `block.srcdata[dgl.NID]` | 得到 block 中 src 节点在原图中的 ID（int Tensor） |
+  | `block.dstdata[dgl.NID]` | dst 节点在原图中的 ID                             |
+  | `block.edata[dgl.EID]`   | block 中的边对应原图中的边 ID                     |
+
+  
+
+
+
+
+
+
+
 ## dgl.DGLGraph
 
 ### `g.apply_edges()`
@@ -382,6 +412,101 @@ $$
 
 
 
+## 批处理相关技术
+
+首先，可以参考一下[这篇文档](https://blog.csdn.net/beilizhang/article/details/112966162)进行入门
+
+* 思考以下邻居采样的工作原理
+
+  我们在更新一个节点的表示时，**只需要该结点以及其邻居**在**上一层中的表示**。所以需要找出节点消息传递的依赖。
+
+* 边界子图（Frontier）与 block 有什么区别与联系？
+
+### `dgl.in_subgraph()`
+
+我们将**有依赖关系的图**称为边界子图（frontier）。DGL有多种生成边界子图的函数，这里使用最常用的 `dgl.in_subgraph()`，它的参数为**原始图**和**指定节点（汇点）**，它根据指定节点的入边生成边界子图。例如：
+
+```python
+frontier = dgl.in_subgraph(g, [8])
+```
+
+若是同构图，那么该子图的 type 类型与原图的 type 类型是一致的。
+
+### `dgl.to_block()`
+
+`dgl.to_block` 是 DGL 中将一个 **子图（subgraph）** 转换为一个 **block 图** 的函数，用于支持 GNN 中的 **message passing** 机制（源节点 → 目标节点结构）。**DGL 中的 `block` 图，本质上就是一个“定向的二部图（directed bipartite graph）”。**下面是它的详细参数说明。
+
+* 函数参数
+
+  ```python
+  dgl.to_block(g, dst_nodes=None, include_dst_in_src=True, copy_ndata=True, copy_edata=True)
+  ```
+
+  | 参数名               | 类型                                  | 默认值 | 说明                                                         |
+  | -------------------- | ------------------------------------- | ------ | ------------------------------------------------------------ |
+  | `g`                  | `DGLGraph`                            | 必需   | 输入**子图**（可以是方向图、多边图等），会被转换为一个 block（bipartite）结构 |
+  | `dst_nodes`          | Tensor[int] or dict[str, Tensor[int]] | `None` | 指定要作为 block 右边（目标）的节点 ID如果为 `None`，默认使用 `g.dstnodes()`。**我们可以通过手动选定目标节点来更新我们希望更新的节点的表示。** |
+  | `include_dst_in_src` | `bool`                                | `True` | 控制是否将目标节点 `dst_nodes` 也包含进 `src_nodes` 中（即左边输入端也包含目标节点）**也就是默认会自动构建自环，这样就能保证孤立节点也能进行消息传递。** |
+  | `copy_ndata`         | `bool`                                | `True` | 是否从原图复制节点特征到 block 图中                          |
+  | `copy_edata`         | `bool`                                | `True` | 是否从原图复制边特征到 block 图中                            |
+
+* 返回值
+
+  返回一个新的  `DGLBlock` 类型图对象（子类于 `DGLGraph`）
+
+  有以下典型结构：
+
+  ```python
+  block.srcdata[dgl.NID]  # 原图中源节点ID
+  block.dstdata[dgl.NID]  # 原图中目标节点ID
+  block.edges()           # 方向为：src → dst
+  ```
+
+* 说明
+
+  在 DGL 的 block 中：
+
+  - 一侧是 **源节点（src nodes）** → 输入信息（提供特征）
+  - 一侧是 **目标节点（dst nodes）** → 聚合邻居信息（更新特征）
+  - 二部图中节点的特征来源？模型输入时，**src 节点需要提供初始特征**，用于聚合给 dst 节点
+
+* 为什么 GNN 中使用二部图（block）
+
+  | 目的                                    | block 的优势                                                 |
+  | --------------------------------------- | ------------------------------------------------------------ |
+  | **消息传递清晰**                        | 只从 src 向 dst 传播，避免冗余计算                           |
+  | **利于批处理训练**                      | 每个 batch 只更新 dst 节点，**src 是上下文（需要显式提供）** |
+  | **减少计算冗余**                        | 不用计算未采样的邻居节点的输出表示                           |
+  | **适配 Transformer/GAT 风格 Attention** | 明确区分查询（dst）和键值（src）                             |
+
+* 操作方式
+
+  block 的操作方式与常规二分图差不多（其实也和 `dgl.graph` 差不多）
+
+  * `.number_of_src_nodes()` 和  `.number_of_dst_nodes()` 获取源节点和目标节点的个数。
+
+  * `.srcnodes()` 和 `.dstnodes()`
+
+    返回**独立于原图的重新编号**的源点和汇点的编号。
+
+  * `.srcdata["h"]` 和 `.dstdata["h"]` **访问**输入节点和输出节点特征。当然也可以自己赋值。
+
+    需要注意的是，block会对边界子图中的节点和边重新编号，可以通过 dgl.NID 得到块中输入节点和输出节点的初始节点ID，可以通过 dgl.EID 得到边ID到输入边界中边的初始ID的映射，且DGL确保块的输出节点将始终出现在输入节点中。
+
+### 多层 GNN 中的依赖关系
+
+随便理解一下
+
+### 异构图上的采样
+
+搁置
+
+### 自定义邻居采样器
+
+
+
+
+
 # Models
 
 ## GAT
@@ -390,10 +515,9 @@ $$
 
 #### 逐元素相乘 + 求和 与 拼接 + 线性变换是等价的
 
-> ## **1️⃣ 原始 GAT 公式**
+> **1️⃣ 原始 GAT 公式**
 >
 > 在 GAT 论文中，注意力分数 $e_{ij}$ 计算如下：
->
 > $$
 > e_{ij} = \text{LeakyReLU} \left( \mathbf{a}^T [W\mathbf{h}_i || W\mathbf{h}_j] \right)
 > $$
@@ -412,9 +536,7 @@ $$
 >
 > 其中 $k$ 遍历 $out\_feats$ 维度。
 >
-> ---
->
-> ## **2️⃣ 逐元素相乘+求和的变形**
+> **2️⃣ 逐元素相乘+求和的变形**
 >
 > 现在看 GAT 代码的实现：
 >
@@ -439,9 +561,7 @@ $$
 > e_{ij} = \text{LeakyReLU} \left( \text{el}_i + \text{er}_j \right)
 > $$
 >
-> ---
->
-> ## **3️⃣ 等价性证明**
+> **3️⃣ 等价性证明**
 >
 > 我们对比：
 > 1. **原始 GAT 计算**：
@@ -462,17 +582,15 @@ $$
 >   - **$\mathbf{a}_{r} = (a_{out\_feats+1}, ..., a_{2\cdot out\_feats})$**  
 > - **代码中的 `attn_l` 和 `attn_r` 本质上就是 $\mathbf{a}_l$ 和 $\mathbf{a}_r$**，所以数学上是等价的。
 >
-> ---
->
-> ## **4️⃣ 结论**
->
+> **4️⃣ 结论**
 > $$
 > \mathbf{a}^T [W\mathbf{h}_i || W\mathbf{h}_j] = \sum_k a_{l,k} (W \mathbf{h}_i)_k + \sum_k a_{r,k} (W \mathbf{h}_j)_k
 > $$
 >
 > 即 **逐元素相乘+求和的形式** 与 **拼接+矩阵乘法** 是等价的！
 >
-> ### **为什么这样实现更好？**
+> **为什么这样实现更好？**
+>
 > 1. **减少计算量**：
 >    - 拼接后要计算 $2 \times out\_feats$ 维的点积，而逐元素相乘只需要计算 $out\_feats$ 维的点积，两者本质上计算相同的内容，但减少了内存访问的开销。
 >
@@ -635,3 +753,6 @@ $$
 
   * 输出的维度 $(N', \text{num of heads}, feat\_out)$（未经 `aggreagte` 处理的情况下）
     $N'$ 表示这一轮（一般对应一个子图）的 `dst` 的数量；$feat \_ out$ 表示输出的特征维度
+
+
+
