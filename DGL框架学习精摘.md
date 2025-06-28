@@ -422,19 +422,30 @@ $$
 
 * 边界子图（Frontier）与 block 有什么区别与联系？
 
+* 如果我们打算使用 block 更新全图，那么 dstnode 也应该是图中的所有节点，既然这样那么使用 block 相较于直接更新全图的优势在哪？
+
+* `dgl.sampling.sample_neighbors(g, seed_nodes, fanout)` 和 `dgl.in_subgraph(g, seed_nodes)` 有什么区别？
+
+  前者是**按固定数量随机采样邻居**（**稀疏采样**）。后者是**不做采样，保留所有入边邻居（全邻居采样）。**
+
 ### `dgl.in_subgraph()`
 
-我们将**有依赖关系的图**称为边界子图（frontier）。DGL有多种生成边界子图的函数，这里使用最常用的 `dgl.in_subgraph()`，它的参数为**原始图**和**指定节点（汇点）**，它根据指定节点的入边生成边界子图。例如：
+我们将**有依赖关系的图**称为边界子图（frontier）。DGL有多种生成边界子图的函数，这里使用最常用的 `dgl.in_subgraph()`，它的参数为**原始图**和**指定节点（汇点）**，它根据指定节点的入边生成边界子图。它用于从原图中提取给定节点的“入子图”（in-subgraph），即保留所有**指向这些节点的边**，常用于处理节点的**入邻居信息**。例如：
 
 ```python
 frontier = dgl.in_subgraph(g, [8])
 ```
 
-若是同构图，那么该子图的 type 类型与原图的 type 类型是一致的。
+注意：
+
+* 若是同构图，那么该子图的 type 类型与原图的 type 类型是一致的。
+* 该函数返回的子图中会将不需要的边去掉，**节点仍然保留**，也即节点总数与原图是不变的
 
 ### `dgl.to_block()`
 
 `dgl.to_block` 是 DGL 中将一个 **子图（subgraph）** 转换为一个 **block 图** 的函数，用于支持 GNN 中的 **message passing** 机制（源节点 → 目标节点结构）。**DGL 中的 `block` 图，本质上就是一个“定向的二部图（directed bipartite graph）”。**下面是它的详细参数说明。
+
+注意理解这里的**明确构造二部图的含义**：即明确地划分了 `srcdata` 与 `dstdata`
 
 * 函数参数
 
@@ -445,7 +456,7 @@ frontier = dgl.in_subgraph(g, [8])
   | 参数名               | 类型                                  | 默认值 | 说明                                                         |
   | -------------------- | ------------------------------------- | ------ | ------------------------------------------------------------ |
   | `g`                  | `DGLGraph`                            | 必需   | 输入**子图**（可以是方向图、多边图等），会被转换为一个 block（bipartite）结构 |
-  | `dst_nodes`          | Tensor[int] or dict[str, Tensor[int]] | `None` | 指定要作为 block 右边（目标）的节点 ID如果为 `None`，默认使用 `g.dstnodes()`。**我们可以通过手动选定目标节点来更新我们希望更新的节点的表示。** |
+  | `dst_nodes`          | Tensor[int] or dict[str, Tensor[int]] | `None` | 指定要作为 block 右边（目标）的节点 ID如果为 `None`，默认使用 `g.dstnodes()`。**我们可以通过手动选定目标节点来更新我们希望更新的节点的表示。**但一般情况下我们不会仅更新个别节点。 |
   | `include_dst_in_src` | `bool`                                | `True` | 控制是否将目标节点 `dst_nodes` 也包含进 `src_nodes` 中（即左边输入端也包含目标节点）**也就是默认会自动构建自环，这样就能保证孤立节点也能进行消息传递。** |
   | `copy_ndata`         | `bool`                                | `True` | 是否从原图复制节点特征到 block 图中                          |
   | `copy_edata`         | `bool`                                | `True` | 是否从原图复制边特征到 block 图中                            |
@@ -487,7 +498,7 @@ frontier = dgl.in_subgraph(g, [8])
 
   * `.srcnodes()` 和 `.dstnodes()`
 
-    返回**独立于原图的重新编号**的源点和汇点的编号。
+    返回**独立于原图的重新编号**的源点和汇点的**编号**。
 
   * `.srcdata["h"]` 和 `.dstdata["h"]` **访问**输入节点和输出节点特征。当然也可以自己赋值。
 
@@ -495,7 +506,34 @@ frontier = dgl.in_subgraph(g, [8])
 
 ### 多层 GNN 中的依赖关系
 
-随便理解一下
+这里引出了一个比较重要的概念就是说，在多层 GNN 中**样顺序其实是从“输出层往输入层”倒推的**。这是为了逐层反推出 GNN 每一层所需的输入邻居节点。
+
+* 图神经网络 `massage passing` 的实际流程是：
+
+  我们要更新某个节点 `u` 的表示（例如输出层表示），就必须先拿到它邻居的表示：
+
+  - 所以我们要知道**谁是它的一阶邻居**（用于最后一层）；
+  - 再去找这些邻居的邻居（用于倒数第二层）；
+  - 一层层地往前推（其实就是倒推）。
+
+* 举一个例子进行说明
+
+  假设我们有一个 2 层的 GNN 模型，结构如下
+
+  ```css
+  Input → Layer 1 → Layer 2 → Output
+  ```
+
+  加入现在想更新某一批目标节点的表示（比如训练样本中的节点），这个时候：
+
+  | block_id | 对应 GNN 层 | 是为了计算哪一层的输入？ | 要采哪些邻居？       |
+  | -------- | ----------- | ------------------------ | -------------------- |
+  | 0        | Layer 2     | 计算输出层（最终表示）   | 采目标节点的一阶邻居 |
+  | 1        | Layer 1     | 计算中间表示             | 采邻居的邻居         |
+
+  因此，采样顺序是从 block 0 开始，往回采样，从“模型最后一层”需要的输入开始，一层层向输入层**回溯**。
+
+  可以理解成要进行**两次遍历**：**第一遍采样子图（反向），第二遍前向传播（正向）**。这种设计是 DGL Block 模式中非常经典且高效的做法，特别适用于大图训练。
 
 ### 异构图上的采样
 
@@ -503,7 +541,84 @@ frontier = dgl.in_subgraph(g, [8])
 
 ### 自定义邻居采样器
 
+先看之前常用的 `MultiLayerFullNeighborSampler` 采样器的实现。该采样器的实现如下：
 
+```python
+class MultiLayerFullNeighborSampler(dgl.dataloading.BlockSampler):
+    def __init__(self, n_layers):
+        super().__init__(n_layers)
+
+    def sample_frontier(self, block_id, g, seed_nodes):
+        frontier = dgl.in_subgraph(g, seed_nodes)
+        return frontier
+```
+
+其中：`super().__init__(n_layers)` 是告诉负类，我要采样多少层。这个必写！
+
+容易看出，采样器继承自 `dgl.dataloading.BlockSampler` ，而 `BlockSampler` 负责调用 `sample_frontier()` 函数生成块列表，所以主要任务还是落在了 `sample_frontier()` ，它需要从原始图中根据指定节点生成边界子图。
+
+
+
+再来看更复杂的邻居采样器 `MultiLayerNeighborSampler`的实现：
+
+```python
+class MultiLayerNeighborSampler(dgl.dataloading.BlockSampler):
+    def __init__(self, fanouts):
+        super().__init__(len(fanouts))
+
+        self.fanouts = fanouts
+
+    def sample_frontier(self, block_id, g, seed_nodes):
+        fanout = self.fanouts[block_id]
+        if fanout is None:
+            frontier = dgl.in_subgraph(g, seed_nodes)
+        else:
+            frontier = dgl.sampling.sample_neighbors(g, seed_nodes, fanout)
+        return frontier
+```
+
+与 `MultiLayerFullNeighborSampler` 不同的是，它会根据 `fanout` 值随机从指定节点邻居中选出固定数量的邻居。具体体现在`frontier = dgl.sampling.sample_neighbors(g, seed_nodes, fanout)` 。其中
+
+1. `block_id`: 当前正在采样的 GNN 层的编号（从外层到内层，比如第0层表示输出层对应的输入）。
+
+2. `g`: 当前的图。
+
+3. `seed_nodes`: 本层的目标节点（我们要更新这些节点的表示）。
+
+于是，只需稍加修改 `sample_frontier()` 函数，我们就可以**自定义一个邻居采样器**。下面实现的是**以某种概率**将种子节点的入边随机剔除。
+
+```python
+class MultiLayerDropoutSampler(dgl.dataloading.BlockSampler):
+    def __init__(self, p, n_layers):
+        super().__init__()
+
+        self.n_layers = n_layers
+        self.p = p
+
+    def sample_frontier(self, block_id, g, seed_nodes, *args, **kwargs):
+        # 获取种 `seed_nodes` 的所有入边
+        src, dst = dgl.in_subgraph(g, seed_nodes).all_edges()
+        # 以概率p随机选择边
+        mask = torch.zeros_like(src).bernoulli_(self.p)
+        src = src[mask]
+        dst = dst[mask]
+        # 返回一个与初始图有相同节点的边界
+        frontier = dgl.graph((src, dst), num_nodes=g.number_of_nodes())
+        return frontier
+
+    def __len__(self):
+        return self.n_layers
+```
+
+**注意，边界子图需要保持节点与原始图节点相同。**
+
+### 异构图上自定义采样器
+
+搁置
+
+
+
+### NodeDataLoader（大概懂了）
 
 
 
