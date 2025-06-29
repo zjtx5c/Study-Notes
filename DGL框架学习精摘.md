@@ -47,7 +47,7 @@
   2. 构造一个 block （二部图）
   3. 在 block 中进行消息传递（message passing）
 
-  但是，这时我面对的是**子图**或**block**的“局部图结构”，里面的节点编号是**局部编号**，**和原图不一致**！所以，为了能知道这些“局部节点”在原图中是谁，DGL 用 `dgl.NID` 来存储“它在原图中的编号”。例如（从 xxxdata 中获取）：
+  但是，这时我面对的是**子图**或**block**的“局部图结构”，里面的节点编号是**局部编号**，**和原图不一致**！所以，为了能知道这些“局部节点”在原图中是谁，DGL 用 `dgl.NID` 来存储“它在原图中的编号”。例如（从 xxxdata 中获取，即配合 `.xxxdata` 这个方法）：
 
   | 表达式                   | 作用                                              |
   | ------------------------ | ------------------------------------------------- |
@@ -412,9 +412,18 @@ $$
 
 
 
-## 批处理相关技术
+## 批处理与采样相关技术
 
 首先，可以参考一下[这篇文档](https://blog.csdn.net/beilizhang/article/details/112966162)进行入门
+
+* 事实上，**批处理（batching）和 block 构建**是一项技术，**图采样（sampling）**是另一项技术，它们本质上是相互独立的。然而，如果将这两者结合使用，可以进一步降低显存占用，从而支持大规模图的训练。尽管如此，这种内存优化通常会带来一定程度的性能下降（例如表示质量下降或训练误差增大），这是一个常见的精度与效率的权衡问题。事实上，如果我们使用**批处理（batching）+ 全邻居采样（full neighbor sampling）**，**理论上精度几乎不会改变**，因为我们保留了图的完整拓扑结构信息。只是每次训练时只处理部分目标节点（batch），但每个目标节点的邻居信息是完整的。
+
+* 思考子图 transfrom 和全图 transfrom 的差异与区别
+
+  | 模型                            | 优点                                                         | 缺点                                                         |
+  | ------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+  | ✅ Block/Batch-based Transformer | 低计算成本；可处理大图；可以做动态采样；训练时 memory-friendly | **视野有限**，每个节点只能看到其局部邻居；**跨子图信息**难以建模 |
+  | ❌ 全图 Transformer              | **表达力强**，可建模长距离依赖；无需采样，结构完整           | **计算与内存开销极高**；难以扩展到百万规模图                 |
 
 * 思考以下邻居采样的工作原理
 
@@ -422,7 +431,9 @@ $$
 
 * 边界子图（Frontier）与 block 有什么区别与联系？
 
-* 如果我们打算使用 block 更新全图，那么 dstnode 也应该是图中的所有节点，既然这样那么使用 block 相较于直接更新全图的优势在哪？
+* **如果我们打算使用 block 更新全图，那么 dstnode 也应该是图中的所有节点，既然这样那么使用 block 相较于直接更新全图的优势在哪？**（即我们需要理解为什么使用 block + 采样 + 批处理技术能够有效缓解显存压力）
+
+  * 个人感觉是分批次节点采样，降低空间复杂度
 
 * `dgl.sampling.sample_neighbors(g, seed_nodes, fanout)` 和 `dgl.in_subgraph(g, seed_nodes)` 有什么区别？
 
@@ -430,7 +441,7 @@ $$
 
 ### `dgl.in_subgraph()`
 
-我们将**有依赖关系的图**称为边界子图（frontier）。DGL有多种生成边界子图的函数，这里使用最常用的 `dgl.in_subgraph()`，它的参数为**原始图**和**指定节点（汇点）**，它根据指定节点的入边生成边界子图。它用于从原图中提取给定节点的“入子图”（in-subgraph），即保留所有**指向这些节点的边**，常用于处理节点的**入邻居信息**。例如：
+我们将**有依赖关系的图**称为边界子图（frontier）。DGL有多种生成边界子图的函数，这里使用最常用的 `dgl.in_subgraph()`，它的参数为**原始图**和**指定节点（汇点）**，它**根据指定节点的入边**生成边界子图。它用于从原图中提取给定节点的“入子图”（in-subgraph），即保留所有**指向这些节点的边**，常用于处理节点的**入邻居信息**。例如：
 
 ```python
 frontier = dgl.in_subgraph(g, [8])
@@ -618,7 +629,148 @@ class MultiLayerDropoutSampler(dgl.dataloading.BlockSampler):
 
 
 
-### NodeDataLoader（大概懂了）
+### NodeDataLoader
+
+`dgl.dataloading.NodeDataLoader` 用于构建一个基于 DGL 的多层图神经网络训练的数据加载器（NodeDataLoader），其中**每一批数据**都是通过**邻居采样**方式从图中获取的。
+
+* 主要参数（一般只关注前三个）
+
+  ```python
+  dgl.dataloading.NodeDataLoader(
+      g,
+      nodes,
+      sampler,
+      *,
+      use_ddp=False,
+      device=None,
+      batch_size=1,
+      shuffle=False,
+      drop_last=False,
+      num_workers=0,
+      collate_fn=None,
+      worker_init_fn=None,
+      use_uva=False,
+      pin_memory=False,
+      persistent_workers=False,
+      **kwargs
+  )
+  ```
+
+  事实上，如果我们使用全邻居采样 + 批处理 block 技术，进行训练，理论上是没有精度误差的。我们选择一个例子进行说明：
+
+  ```python
+  # full sampler，定义全邻居采样器
+  sampler = dgl.dataloading.MultiLayerFullNeighborSampler(args.num_layers)
+  
+  dataloader = dgl.dataloading.NodeDataLoader(
+      g,                    # 原始图
+      train_idx,            # 要训练的目标节点 ID（种子）
+      sampler,              # 使用的采样器
+      batch_size=args.batch_size,	# 这里默认是用了2048个
+      shuffle=True,         # 打乱数据顺序
+      drop_last=False,      # 最后一批不足 batch_size 是否丢弃
+      pin_memory=True,      # 提升 CPU -> GPU 拷贝效率
+      num_workers=args.num_workers  # 多进程采样加速
+  )
+  ```
+
+  这个 `NodeDataLoader` 会：
+
+  - 每次从 `train_idx` 中采出一个批次（batch）种子节点；
+  - 用 `sampler` 从图中按层采样邻居，构造一组 mini-batch 的**Block 子图**；
+  - **返回这组 Block 子图给模型做==前向传播==**。
+  - `shuffle = True` 是为了让每次采样出来的子图（block）不一样。
+  
+* 遍历过程与内部拆解
+
+  我们一般会这样遍历这个图数据装载器
+
+  ```python
+  for step, (input_nodes, output_nodes, blocks) in enumerate(dataloader)
+  ```
+
+  `input_nodes`：
+
+  * 表示 **当前 batch 所需的所有输入节点 ID**（即 src nodes），它们可能会被用来聚合邻居信息（通过多层 GNN）。
+
+  * 包括：
+
+    - 当前要更新的目标节点的邻居（来自上一 hop 的节点）；
+
+    - 当前目标节点本身；
+
+  * 换句话说，它是前向传播中每一层所需要的所有节点的集合。
+
+  `output_nodes`：
+
+  * 表示 **当前 batch 中真正要更新/计算表示的目标节点 ID**（即 dst nodes）；
+
+  * 在训练时，只有这些节点的表示会用于计算 loss；
+
+  * 它是采样器传入的种子节点（seed nodes），也叫作 mini-batch 中的中心节点。
+
+  `block`：
+
+  * 是一个长度为 `num_layers` 的列表，表示从原图中采样得到的 **多层 mini-batch 边界子图**，每一项是一个 `Block`。
+  * 每一层 `Block` 包含：
+    - 当前 GNN 层所需的邻接信息；
+    - `src` 表示输入节点集合，`dst` 表示目标节点集合；
+    - 注意：这些是有向图中每一层 GNN 的计算图。
+
+### 大致训练流程
+
+1. 设置采样器，一般以**全邻居采样器**为主（这样不会损失训练精度）
+
+   ```python
+   sampler = dgl.dataloading.MultiLayerFullNeighborSampler(args.num_layers)
+   ```
+
+2. 设置数据装载器（要好好**理解这个数据装载器的构成**！）我们一般考虑将其打乱， `drop_last = False`，并设置为多线程，根据自己的显存压力大小设置 `batch_size` 
+
+   注意我们还需要计算多少步 `step` 才能训练完一轮 `epoch`
+
+   ```python
+   dataloader = dgl.dataloading.NodeDataLoader(
+       g,
+       train_idx,
+       sampler,
+       batch_size=args.batch_size,
+       shuffle=True,
+       drop_last=False,
+       # pin_memory=True,
+       num_workers=args.num_workers
+   )
+   
+   total_step = len(train_idx) // args.batch_size + 1
+   ```
+
+3. 开始训练，理解这里的所有数据结构
+
+   ```python
+   for epoch in range(args.epochs):
+       
+       for step, (input_nodes, output_nodes, blocks) in enumerate(dataloader):
+           # load the input features and output labels
+           blocks = [block.int().to(device) for block in blocks]
+           batch_struct = blocks[0].srcdata['struct_feat']
+           batch_content = blocks[0].srcdata['content_feat']
+           batch_labels = blocks[-1].dstdata['labels']
+   
+           # forward
+           model.train()
+           batch_pred, loss = model(blocks, batch_struct, batch_content, batch_labels)
+   
+           optimizer.zero_grad()
+           loss.backward()
+           optimizer.step()
+           # .... # 
+   ```
+
+4. 需要自己重写模型批处理的逻辑。
+
+   先搁置了，以后有时间好好研究
+
+
 
 
 
