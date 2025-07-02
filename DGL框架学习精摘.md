@@ -416,7 +416,7 @@ $$
 
 首先，可以参考一下[这篇文档](https://blog.csdn.net/beilizhang/article/details/112966162)进行入门
 
-* 事实上，**批处理（batching）和 block 构建**是一项技术，**图采样（sampling）**是另一项技术，它们本质上是相互独立的。然而，如果将这两者结合使用，可以进一步降低显存占用，从而支持大规模图的训练。尽管如此，这种内存优化通常会带来一定程度的性能下降（例如表示质量下降或训练误差增大），这是一个常见的精度与效率的权衡问题。事实上，如果我们使用**批处理（batching）+ 全邻居采样（full neighbor sampling）**，**理论上精度几乎不会改变**，因为我们保留了图的完整拓扑结构信息。只是每次训练时只处理部分目标节点（batch），但每个目标节点的邻居信息是完整的。
+* 事实上，**批处理（batching）和 block 构建**是一项技术，**图采样（sampling）**是另一项技术，它们本质上是相互独立的。然而，如果将这两者结合使用，可以进一步降低显存占用，从而支持大规模图的训练。尽管如此，这种内存优化通常会带来一定程度的性能下降（例如表示质量下降或训练误差增大），这是一个常见的精度与效率的权衡问题。事实上，如果我们使用**批处理（batching）+ 全邻居采样（full neighbor sampling）**，**理论上精度几乎不会改变**，因为我们保留了图的完整拓扑结构信息。只是每次训练时只处理部分目标节点（batch），但每个目标节点的邻居信息是完整的。但是若是我们使用 transformer 模型，那么精度可能会有**较大的误差**，虽然图的拓扑结构没有改变，但是注意力矩阵从全图变成了子图。
 
 * 思考子图 transfrom 和全图 transfrom 的差异与区别
 
@@ -564,7 +564,7 @@ class MultiLayerFullNeighborSampler(dgl.dataloading.BlockSampler):
         return frontier
 ```
 
-其中：`super().__init__(n_layers)` 是告诉负类，我要采样多少层。这个必写！
+其中：`super().__init__(n_layers)` 是告诉父类，我要采样多少层。这个必写！
 
 容易看出，采样器继承自 `dgl.dataloading.BlockSampler` ，而 `BlockSampler` 负责调用 `sample_frontier()` 函数生成块列表，所以主要任务还是落在了 `sample_frontier()` ，它需要从原始图中根据指定节点生成边界子图。
 
@@ -656,7 +656,7 @@ class MultiLayerDropoutSampler(dgl.dataloading.BlockSampler):
   )
   ```
 
-  事实上，如果我们使用全邻居采样 + 批处理 block 技术，进行训练，理论上是没有精度误差的。我们选择一个例子进行说明：
+  事实上，如果我们使用全邻居采样 + 批处理 block 技术，进行训练，~~理论上是没有精度误差的~~。我们选择一个例子进行说明：
 
   ```python
   # full sampler，定义全邻居采样器
@@ -699,7 +699,7 @@ class MultiLayerDropoutSampler(dgl.dataloading.BlockSampler):
 
     - 当前目标节点本身；
 
-  * 换句话说，它是前向传播中每一层所需要的所有节点的集合。
+  * 换句话说，它是前向传播中每一层所需要的**所有节点的集合**（我们对其不更新，它只充当上下文的作用）。
 
   `output_nodes`：
 
@@ -719,7 +719,7 @@ class MultiLayerDropoutSampler(dgl.dataloading.BlockSampler):
 
 ### 大致训练流程
 
-1. 设置采样器，一般以**全邻居采样器**为主（这样不会损失训练精度）
+1. 设置采样器，一般以**全邻居采样器**为主
 
    ```python
    sampler = dgl.dataloading.MultiLayerFullNeighborSampler(args.num_layers)

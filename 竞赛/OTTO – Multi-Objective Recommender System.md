@@ -55,6 +55,42 @@
 
     也就是说 `.count` 是统计这一组中的非空值，但是`.count()` 不会统计 `NaN` 值，跟 `.size()` 不一样
 
+  * `groupby()` 与 聚合 `.agg()` 操作的配合使用
+  
+    考虑和 `as_index = False` 使用，这样操作更加简便。或者不使用 `as_index = False` 但是最后可以考虑加上 `.reset_index(drop = True)` `.reset_index()`这个东西比较厉害，能够重置`index`并将 `Series` 转换为 `DataFrame`（自己去想）
+  
+    单一聚合的时候可以不使用 `.agg` 。它更适用于 以下几种场景
+  
+    1. 多个聚合函数
+  
+       你想对同一列做多个聚合操作，比如 count 和 nunique：
+  
+       ```python
+       df.groupby("type")["session"].agg(["count", "nunique"])
+       
+       # 这里表示只对 session 这一列操作
+       ```
+  
+    2. 多个列，每列使用不同的聚合函数
+  
+       ```python
+       df.groupby("type").agg({
+           "session": "count",
+           "aid": "nunique",
+           "duration": "mean"
+       })
+       ```
+  
+    3. 自定义函数聚合
+  
+       若我们想传入 lambda 函数或自定义函数，则可以
+  
+       ```python
+       df.groupby("type")["session"].agg(lambda x: x.max() - x.min())
+       ```
+  
+       
+  
   * `df.sort_values()`（==很重要、很常用==）
 
 
@@ -113,3 +149,7 @@
 
 * 使用了 `.groupby()`
 * 使用了 `.sort_values()`
+
+
+
+发挥自己的能动性，在充分理解赛题的情况下，自己搞点想法，做点实践
