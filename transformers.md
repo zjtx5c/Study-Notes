@@ -165,7 +165,7 @@ print(output)
 
 
 
-## tokenizer_sentiment_analysis
+## 1_tokenizer_sentiment_analysis
 
 ###  重点理解 tokenizer 的过程以及重要的超参数
 
@@ -277,7 +277,7 @@ tokenizer(test_sentences, truncation = True, padding = True, return_tensors = 'p
 | `True`         | 启用 padding（默认对该 batch 内最长序列） | 动态 padding，适合模型效率优化       |
 | `"longest"`    | 等价于 `True`                             | 只 pad 到当前 batch 中最长样本的长度 |
 | `"max_length"` | 填充到 `max_length` 指定的固定长度        | 常用于模型训练（静态 shape）         |
-| `False`        | 不进行 padding                            | 所有样本长度需一致，否则报错         |
+| `False`        | 不进行 padding                            | **所有样本长度需一致，否则报错**     |
 
 事实上 `attention_mask` 也与 `padding` 相匹配。`attention_mask` 为 0 的部分即为 `padding` 的部分
 
@@ -394,7 +394,7 @@ tensor([1, 0, 1])
 
 
 
-## tokenizer_encode_plus_token_type_ids
+## 2_tokenizer_encode_plus_token_type_ids
 
 学习一下升级版的 `encode_plus`，它会得到 `token_type_ids`
 
@@ -434,7 +434,7 @@ tokenizer
 
 
 
-## bert_model_architecture_params（bert 模型框架初探）
+## 3_bert_model_architecture_params（bert 模型框架初探）
 
 * 杂记
 
@@ -444,7 +444,7 @@ encode: BertEncoder: layer 0 ~ 11
 
 pooler: BertPooler
 
-要学会查看模型结构，看他的层，思考他在做什么
+要学会查看模型结构，看他的层，思考他在做什么。
 
 ### 一些理解
 
@@ -572,7 +572,7 @@ encoder.layer.0.attention.self.query.weight -> torch.Size([768, 768]) -> 589824
 
 
 
-## no_grad_requires_grad
+## 4_no_grad_requires_grad
 
 其实这是 Pytorch 中的知识，但是咱们可以再复习一下
 
@@ -609,7 +609,7 @@ print(calc_learnable_params(bert))		# frozen过程，输出 0
 
 
 
-## bert_embedding-output
+## 5_bert_embedding-output
 
 查看 bertmodel 的源码，我们发现其定义了 `embedding` , `encoder` , `pooler` 部分，这里介绍 `embedding` 部分的**前向过程**
 
@@ -666,7 +666,7 @@ class BertEmbeddings(nn.Module):
 
 
 
-## subword_wordpiece_tokenizer
+## 6_subword_wordpiece_tokenizer
 
 subword意为字词，wordpiece则是将一个词分片（将一个词拆分成多个字词）
 
@@ -678,7 +678,7 @@ subword意为字词，wordpiece则是将一个词分片（将一个词拆分成�
 s1 = 'albums sold 124443286539 copies'				# 数字型
 s2 = 'technically perfect, melodically correct'		# melodically 将形容词转换成副词
 s3 = 'featuring a previously unheard track'			# 不太常见的拼接前缀 unheard
-s4 = 'best-selling music artist'						# 短横线形式
+s4 = 'best-selling music artist'					# 短横线形式（尽量规避这种形式）
 s5 = 's1 d1 o1 and o2'								# 子袋
 s6 = 'asbofwheohwbeif'								# 无意义的字符
 ```
@@ -766,5 +766,639 @@ tokenizer.ids_to_tokens
 
 
 
+## 7_model_outputs
+
+### 疑问
+
+* 如何理解最后一层 `hidden` 的输出（`outputs[0]`）以及 `embedding` 的输出（`ouputs[2][0]`）
+
+  > `outputs[0]` = `last_hidden_state`：最后一层 Transformer 输出的隐藏状态，融合了上下文信息。
+  >
+  > `outputs[2]` = `hidden_states` ：是一个元组，包含：
+  >
+  > - `hidden_states[0]`：embedding 层输出，也就是词向量+位置向量+segment向量加和的结果；
+  > - `hidden_states[1]`：第1层 Transformer 的输出；
+  > - ...
+  > - `hidden_states[-1]`：最后一层 Transformer 的输出（同 `outputs[0]`）；
+  >
+  > 所以 `outputs[2][0]` 就是**embedding 层的输出**。**它是最初的向量**见上文 `embedding = token_embed + seg_embed + pos_embed`
+
+* 如何理解该模型 `bert-base-uncased` 的 `forward` 过程？
+
+  `embedding -> encode -> pooler`
+
+### outputs
+
+当我们在预加载模型（`from_pretrained` 阶段）进行设置 `output_hidden_states = True` 时。 `len(outputs)` 将会变为 3
+
+```python
+outputs = model(**token_input)
+```
+
+| 索引         | 内容名称            | 含义说明                                                     | 形状                                                         |
+| ------------ | ------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `outputs[0]` | `last_hidden_state` | 最后一层 Transformer 的输出（每个 token 的上下文表示）它是 token 粒度层面的 | `[batch_size, seq_len, hidden_size]` → `[1, 22, 768]`        |
+| `outputs[1]` | `pooler_output`     | 对 `[CLS]` token 进行线性变换和激活的**句向量**（用于分类任务）它是**句子粒度层面**的。 | `[batch_size, hidden_size]` → `[1, 768]`                     |
+| `outputs[2]` | `hidden_states`     | 包含 embedding 层 + 每一层 Transformer 的输出                | `13 × [batch_size, seq_len, hidden_size]` → `13 × [1, 22, 768]` |
+
+进而我们有以下推测
+
+1. `outputs[0] == outputs[2][-1]`
+
+2. `outputs[1] == model.pooler(outputs[0])`
+
+3. `outputs[2][0] == model.embeddings(token_input["input_ids"], token_input["token_type_ids"])`
+
+4. ```python
+   for i in range(len(outputs[2])):
+       print(i, outputs[2][i].shape)
+   ```
+
+   ```bash
+   0 torch.Size([1, 22, 768])
+   1 torch.Size([1, 22, 768])
+   2 torch.Size([1, 22, 768])
+   3 torch.Size([1, 22, 768])
+   4 torch.Size([1, 22, 768])
+   5 torch.Size([1, 22, 768])
+   6 torch.Size([1, 22, 768])
+   7 torch.Size([1, 22, 768])
+   8 torch.Size([1, 22, 768])
+   9 torch.Size([1, 22, 768])
+   10 torch.Size([1, 22, 768])
+   11 torch.Size([1, 22, 768])
+   12 torch.Size([1, 22, 768])
+   ```
+
+### 最后一层隐藏层进入 `pooler` 层时怎样工作的
+
+即探究 `outputs[1] == model.pooler(outputs[0])` 
+
+我们先找到具体的源码：
+
+```python
+class BertPooler(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.activation = nn.Tanh()
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # We "pool" the model by simply taking the hidden state corresponding
+        # to the first token.
+        first_token_tensor = hidden_states[:, 0]
+        pooled_output = self.dense(first_token_tensor)
+        pooled_output = self.activation(pooled_output)
+        return pooled_output
+```
+
+`model.pooler(outputs[0])` 本质上做了这件事：
+
+> BERT 中的 `pooler_output`（也就是 `outputs[1]`），**就是取 `[CLS]` 的词向量，做一个线性变换 + Tanh 激活后得到的结果**，被视为**整个句子的语义表示**（句向量 / sentence embedding）。
+
+这也是 `outputs[1]` 的真实生成过程。
+
+> 虽然这是 BERT 的原生句向量方案，但：
+>
+> - **它不一定效果最好**，因为 `[CLS]` 向量对句子的代表能力受训练目标影响；
+> - 如果做检索、聚类、相似度任务，常用更强的句向量方法，比如：
+>   - **平均池化（Mean Pooling）**：对 `last_hidden_state` 取平均；
+>   - **Sentence-BERT**：用**专门训练过的句向量模型**，提升语义相似度对齐能力。
+
+==我目前对这种做法还不是很能接受，随着后续地更深入了解应该会豁然开朗==
 
 
+
+## 8_attn_01
+
+我们会对比 model 的 self-attention 的输出以及自己写的计算 attention 的输出，进行对比看是否一样。目的是为了了解 attention 计算过程中的细节
+
+### 疑问
+
+* ```python
+  from bertviz.transformers_neuron_view import BertModel
+  from transformers import BertModel
+  ```
+
+  从这两个模块中导入的 BertModel 有什么区别？
+
+  > 这两个 `BertModel` 来自不同的模块，功能和用途也有所不同：
+  >
+  > 1. **`from bertviz.transformers_neuron_view import BertModel`**：
+  >    - 这是 `BertViz` 库中的 `BertModel`。`BertViz` 是一个可视化工具包，用于帮助研究人员和工程师分析和可视化 BERT 模型的注意力机制和内部特征。
+  >    - 这个 `BertModel` 类是 `BertViz` 特定的扩展版本，提供了额外的可视化功能，如通过注意力得分来展示模型的工作原理。
+  >    - 该模型主要用于神经网络层次、注意力分布等的可视化，不会改变模型的本质结构，但它有助于你理解模型在处理输入时的内部表现。
+  > 2. **`from transformers import BertModel`**：
+  >    - 这是 `transformers` 库中标准的 BERT 模型实现。`transformers` 是一个流行的自然语言处理（NLP）库，由 Hugging Face 开发，提供了许多预训练的模型（如 BERT、GPT、T5 等）。
+  >    - 该 `BertModel` 实现的是 BERT 模型本身，用于进行常规的 NLP 任务（如文本分类、序列标注、问答等）。它没有任何专门的可视化功能，主要用于推理和训练。
+
+* 为什么在做
+
+  ```python
+  emb_output[0] @ model.encoder.layer[0].attention.self.query.weight.T
+  ```
+
+  这个操作时要进行转置？
+  因为 pytorch 的 linear 模块，在进行计算时是这样的： $y = xA^{\top} + b$ 。我们手动计算时是在复现 pytorch 的计算
+
+### model config and load
+
+```python
+model.config
+```
+
+```python
+{
+  "architectures": [
+    "BertForMaskedLM"
+  ],
+  "attention_probs_dropout_prob": 0.1,
+  "finetuning_task": null,
+  "hidden_act": "gelu",
+  "hidden_dropout_prob": 0.1,
+  "hidden_size": 768,
+  "initializer_range": 0.02,
+  "intermediate_size": 3072,
+  "layer_norm_eps": 1e-12,
+  "max_position_embeddings": 512,
+  "model_type": "bert",
+  "num_attention_heads": 12,
+  "num_hidden_layers": 12,
+  "num_labels": 2,
+  "output_attentions": true,
+  "output_hidden_states": false,
+  "pad_token_id": 0,
+  "torchscript": false,
+  "type_vocab_size": 2,
+  "vocab_size": 30522
+}
+```
+
+注意到这里的 `"hidden_size": 768`，其实是多个头“叠加”出来的结果。我们注意到这里的 `"num_attention_heads": 12` ，那么每一层每个头的隐层维度是 768 / 12 = 64。
+
+我们可以取出来观察一下（从 `model.encoder` 这个模块中慢慢地取出来观察一下，**好好体会这个过程**！！！）
+
+要会读懂这个架构（get）
+
+```bash
+BertEncoder(
+  (layer): ModuleList(
+    (0): BertLayer(
+      (attention): BertAttention(
+        (self): BertSelfAttention(
+          (query): Linear(in_features=768, out_features=768, bias=True)
+          (key): Linear(in_features=768, out_features=768, bias=True)
+          (value): Linear(in_features=768, out_features=768, bias=True)
+          (dropout): Dropout(p=0.1, inplace=False)
+        )
+        (output): BertSelfOutput(
+          (dense): Linear(in_features=768, out_features=768, bias=True)
+          (LayerNorm): BertLayerNorm()
+          (dropout): Dropout(p=0.1, inplace=False)
+        )
+      )
+      (intermediate): BertIntermediate(
+        (dense): Linear(in_features=768, out_features=3072, bias=True)
+      )
+      (output): BertOutput(
+        (dense): Linear(in_features=3072, out_features=768, bias=True)
+        (LayerNorm): BertLayerNorm()
+        (dropout): Dropout(p=0.1, inplace=False)
+      )
+    )
+...
+        (dropout): Dropout(p=0.1, inplace=False)
+      )
+    )
+  )
+)
+```
+
+
+
+```python
+model.encoder.layer[0].attention.self.query.weight.T[:, : 64]
+```
+
+```bash
+tensor([[-0.0164, -0.0326,  0.0105,  ..., -0.0186, -0.0095,  0.0112],
+        [ 0.0261,  0.0346,  0.0334,  ...,  0.0482, -0.0285, -0.0349],
+        [-0.0263, -0.0423,  0.0109,  ..., -0.0724, -0.0453, -0.0304],
+        ...,
+        [ 0.0154, -0.0527, -0.0279,  ..., -0.0434,  0.0170,  0.0217],
+        [ 0.0768,  0.1393,  0.0258,  ...,  0.0385,  0.0357, -0.0631],
+        [ 0.0548,  0.0078, -0.0468,  ...,  0.0423, -0.0408,  0.0212]],
+       grad_fn=<SliceBackward0>)
+```
+
+我们这样子索引其实是取出了**第一个头**的 `hidden_embedding`
+
+
+
+### model output
+
+```python
+config = BertConfig.from_pretrained(model_name, output_attentions=True, 
+                                    output_hidden_states=True, 
+                                    return_dict=True,
+                                    cache_dir = cache_dir)
+config.max_position_embeddings = max_length
+
+model = BertModel(config).from_pretrained(model_name, cache_dir = cache_dir)
+```
+
+我们进行这样的设置 `output_hidden_states=True, return_dict=True` 之后，我们的 `output` 会返回三个层，其中第三层和 `7_model_outputs` 这一节中讲得差不多，但是由于我们进行了 `return_dict=True` 这个操作
+
+所以 `type(model_output[2]) == tuple` 并且 `type(model_output[2][0]) == dict`
+
+当然 `model_output` 的第一层（0）和第二层（1）都是 `tensor` ，和之前第七章所讲的形式一样
+
+```python
+print(model_output[2][-1].keys())	#  return_dict=True
+```
+
+```bash
+dict_keys(['attn', 'queries', 'keys'])
+```
+
+
+
+### from scratch
+
+我们考虑计算第一层输出得到的 `attn` 系数
+
+```python
+# model_output[-1][0]['attn'].shape			# (B, H, N, N)
+model_output[-1][0]['attn'][0, 0, :, :]		# (N, N)
+```
+
+
+
+```bash
+tensor([[0.0053, 0.0109, 0.0052,  ..., 0.0039, 0.0036, 0.0144],
+        [0.0086, 0.0041, 0.0125,  ..., 0.0045, 0.0041, 0.0071],
+        [0.0051, 0.0043, 0.0046,  ..., 0.0043, 0.0045, 0.0031],
+        ...,
+        [0.0010, 0.0023, 0.0055,  ..., 0.0012, 0.0018, 0.0011],
+        [0.0010, 0.0023, 0.0057,  ..., 0.0012, 0.0017, 0.0007],
+        [0.0022, 0.0056, 0.0063,  ..., 0.0045, 0.0048, 0.0015]],
+       grad_fn=<SliceBackward0>)
+```
+
+
+
+
+
+* my test
+
+```python
+import torch
+import torch.nn.functional as F
+# 这里注意取第一个头 [: 64]
+Q_first_head_first_layer = torch.matmul(emb_output[0], model.encoder.layer[0].attention.self.query.weight.T[:, : 64]) + model.encoder.layer[0].attention.self.query.bias[: 64]
+K_first_head_first_layer = torch.matmul(emb_output[0], model.encoder.layer[0].attention.self.key.weight.T[:, : 64]) + model.encoder.layer[0].attention.self.key.bias[: 64]
+V_first_head_first_layer = torch.matmul(emb_output[0], model.encoder.layer[0].attention.self.value.weight.T[:, : 64]) + model.encoder.layer[0].attention.self.value.bias[: 64]
+
+scores = torch.matmul(Q_first_head_first_layer, K_first_head_first_layer.T) / math.sqrt(64)
+scores = F.softmax(scores, dim = -1)
+
+print(scores)
+print(torch.allclose(scores, model_output[-1][0]['attn'][0, 0, :, :]))		# (N, N)
+```
+
+```bash
+tensor([[0.0053, 0.0109, 0.0052,  ..., 0.0039, 0.0036, 0.0144],
+        [0.0086, 0.0041, 0.0125,  ..., 0.0045, 0.0041, 0.0071],
+        [0.0051, 0.0043, 0.0046,  ..., 0.0043, 0.0045, 0.0031],
+        ...,
+        [0.0010, 0.0023, 0.0055,  ..., 0.0012, 0.0018, 0.0011],
+        [0.0010, 0.0023, 0.0057,  ..., 0.0012, 0.0017, 0.0007],
+        [0.0022, 0.0056, 0.0063,  ..., 0.0045, 0.0048, 0.0015]],
+       grad_fn=<SoftmaxBackward0>)
+True
+```
+
+
+
+## 9_BertSelfLayer 多头注意力机制（multi head attention）的分块矩阵实现
+
+这个东西我在使用 dgl 实现 GAT 时已经仔细地理解过了。现在再来复习一下。
+
+### 补充说明
+
+1. 我们观察如下公式
+
+   $W_q \in \mathbf{R}^{d_e \times d_q} \\W_k \in \mathbf{R}^{d_e \times d_k} \\W_v \in \mathbf{R}^{d_e \times d_v}$
+
+   其中 $d_e$ 是输入层的特征维度
+
+   根据 transformers 的公式，我们要求 $d_q = d_k$，但是对 $d_v$ 的大小不做具体要求，但是我们有时候为了将维度统一贯穿整个过程，一般这三个维度的大小是相同的
+
+2. 自己手写一遍 multi-layer 的分块矩阵的实现
+
+   **需要注意的是，多头的实现是 softmax 作用在单头上再拼接而不是先拼接再 softmax**
+
+
+
+## 10_add_norm_residual_conn
+
+和上面一样，学会自己实践一下
+
+### 疑问
+
+* `model.config` 中的 `intermediate_size` 的含义是什么？如何理解它的对齐。
+
+  就是前馈神经网络中拉高的维度，在 bert-base-uncased 中是 768 * 4 = 3072
+
+* 理解 `torch.no_grad()`  和 `model.eval()` 的区别
+
+  > ### `torch.no_grad()`
+  >
+  > - **目的**：禁用梯度计算。
+  > - **作用**：在该上下文环境下，所有的张量操作都不会计算梯度，从而节省显存并加速推理过程。它常用于 **推理（inference）** 阶段，因为在此阶段你不需要计算梯度。
+  > - **使用场景**：例如，推理或验证模型时，因为你不打算进行反向传播和梯度更新。
+  >
+  > ```python
+  > 辑with torch.no_grad():
+  >     output = model(input)  # 推理时不计算梯度
+  > ```
+  >
+  > ### `model.eval()`
+  >
+  > - **目的**：将模型设置为评估模式。
+  > - **作用**：它主要影响某些特定层，如 **BatchNorm** 和 **Dropout** 层。
+  >   - **BatchNorm**：在训练模式下，BatchNorm 会使用当前批次的均值和方差进行归一化，而在评估模式下，它会使用训练过程中计算得到的全局均值和方差。
+  >   - **Dropout**：在训练模式下，Dropout 会随机丢弃一些神经元，以防止过拟合；而在评估模式下，Dropout 会被禁用，即每个神经元都会被保留，以便在推理时使用完整的模型。
+  >
+  > ```python
+  > model.eval()  # 进入评估模式
+  > output = model(input)  # 评估阶段
+  > ```
+
+  
+
+
+
+### BertLayer层
+
+以 `layer[0]` 为例（其他都是一样的）
+
+```bash
+(layer): ModuleList(
+      (0): BertLayer(
+        (attention): BertAttention(
+          (self): BertSelfAttention(
+            (query): Linear(in_features=768, out_features=768, bias=True)
+            (key): Linear(in_features=768, out_features=768, bias=True)
+            (value): Linear(in_features=768, out_features=768, bias=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+          )
+          (output): BertSelfOutput(
+            (dense): Linear(in_features=768, out_features=768, bias=True)
+            (LayerNorm): LayerNorm((768,), eps=1e-12, elementwise_affine=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+          )
+        )
+        (intermediate): BertIntermediate(
+          (dense): Linear(in_features=768, out_features=3072, bias=True)
+          (intermediate_act_fn): GELUActivation()
+        )
+        (output): BertOutput(
+          (dense): Linear(in_features=3072, out_features=768, bias=True)
+          (LayerNorm): LayerNorm((768,), eps=1e-12, elementwise_affine=True)
+          (dropout): Dropout(p=0.1, inplace=False)
+        )
+      )
+```
+
+和最经典的那张图对应起来（仔细思考一下）
+
+- BertLayer
+    - attention: BertAttention
+        - self: BertSelfAttention
+        - output: BertSelfOutput
+    - intermediate: BertIntermediate, 768=>4*768
+    - output: BertOutput, 4*768 => 768
+
+### 自己复现一下
+
+已 get
+
+注意：在 `mha_output = layer.attention.self(embeddings)` 在这一界面，即在 attention 层计算自注意力机制输出的会是一个 `tuple` ，第一项 `mha_output[0]` 存入的是 Multi-Head Attention 。（`[B, seq_len, heads * heads_hidden]`）
+
+
+
+## 11_bert_head_pooler_output
+
+### 理解 pooler_output（流程）
+
+* `pooler_output` 是最终的一个输出
+* 输入的东西是什么？
+* 输出的东西是什么？
+* 具体是怎么计算的？
+  * 线性层 + 激活层
+
+
+
+### **forward and pooler output**
+
+```python
+bert.eval()
+with torch.no_grad():
+    output = bert(**inputs)
+    # output.keys() odict_keys(['last_hidden_state', 'pooler_output'])
+    print(output["pooler_output"].shape)
+```
+
+```bash
+torch.Size([1, 768])	# (B, D)
+```
+
+**pool_output 的做法是选择每个一句子（B）中的首个 token 的 embedding （in_D = D），将其送入一个线性层 + 激活层，最终得到一个代表整个句子的输出（B,  out_D = D）**
+
+这样我们才可以使用这个最终的输出做一些句子分类、情感分析的任务，**将落点落到句子上**。
+
+我们可以进行验证
+
+### **from scratch**
+
+```python
+bert.pooler
+```
+
+```bash
+BertPooler(
+  (dense): Linear(in_features=768, out_features=768, bias=True)
+  (activation): Tanh()
+)
+```
+
+```python
+my_output = bert.pooler.activation(bert.pooler.dense(output["last_hidden_state"][0, 0, :]))
+print(my_output.shape)
+torch.equal(my_output, output["pooler_output"][0])
+```
+
+```bash
+torch.Size([768])
+True
+```
+
+### bert Head
+
+Bert 这个架构，它的 embedding 和 encoder 是不会变的，这也是它的精华所在。它后面跟了不同的 head，意为着它接了不同的任务，我们只需要改后面的 head 即可。
+
+Bertmodel 的默认 head 是 pooler。
+
+```bash
+  (pooler): BertPooler(
+    (dense): Linear(in_features=768, out_features=768, bias=True)
+    (activation): Tanh()
+  )
+```
+
+
+
+
+
+## 12_masked_lm
+
+这是很经典的语言模型：masked_language_model：掩码语言模型
+
+### 小节
+
+* 理解 mlm 任务中 BertOnlyMLMHead 的组织结构和工作流程
+  * decoder 是将 768 映射到词汇表 30522 上
+* 对多分类任务过程（下游任务）和网络结构（`mlm.cls`）、构造 `labels` 与 `input_ids` 过程（即 `masking` 过程）、计算损失过程、翻译过程更加清晰透彻了。
+
+### mlm
+
+```python
+mlm = BertForMaskedLM.from_pretrained(model_name, output_hidden_states=True, cache_dir = cache_dir)
+mlm
+```
+
+```bash
+# 前面的省略和之前老生常谈的 embedding 和 encoder 一样，只看 head 层
+(cls): BertOnlyMLMHead(
+    (predictions): BertLMPredictionHead(
+      (transform): BertPredictionHeadTransform(
+        (dense): Linear(in_features=768, out_features=768, bias=True)
+        (transform_act_fn): GELUActivation()
+        (LayerNorm): LayerNorm((768,), eps=1e-12, elementwise_affine=True)
+      )
+      (decoder): Linear(in_features=768, out_features=30522, bias=True)
+    )
+  )
+```
+
+从 `in_features` 和 `out_feats` 可以看出，这是一个针对对应此表的多分类任务。
+
+解码器就相当于输出层了，这个网络也很好理解。
+
+
+
+### masking 过程
+
+注意：
+
+* 开始 token 与 结束 token 不要设置成掩码，这是约定俗称的。
+
+
+
+学会生成 `inputs["labels"]`
+
+```python
+# 以其中的第一个句子为例
+inputs["labels"] = inputs["input_ids"].detach().clone()
+mask = torch.rand(inputs["labels"].shape) < 0.15
+mask_arr = (mask) * (inputs["labels"] != 101) * (inputs["labels"] != 102)	# 不能将开始和结束符设置为掩码
+selection = torch.flatten(mask_arr[0].nonzero()).tolist()	# 取第一个句子
+inputs["input_ids"][0][selection] = 103
+inputs
+```
+
+```bash
+{'input_ids': tensor([[  101,  2044,  8181,  5367,  2180,  1996,  2281,  7313,  4883,  2602,
+          2006,   103,  3424,  1011,   103,  4132,  1010,  2019,  3988,  2698,
+          6658,  2163,  4161,  2037, 22965,  2013,  1996,  2406,   103,  2433,
+          1996, 18179,  1012,  2162,  3631,   103,  1999,  2258,  6863,  2043,
+         22965,  2923,  2749,  4457,  3481,  7680,  3334,  1999,  2148,  3792,
+          1010,  2074,  2058,  1037,   103,  2044,  5367,   103,  1055, 17331,
+           103,   102]]), 'token_type_ids': tensor([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]), 'attention_mask': tensor([[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]), 'labels': tensor([[  101,  2044,  8181,  5367,  2180,  1996,  2281,  7313,  4883,  2602,
+          2006,  2019,  3424,  1011,  8864,  4132,  1010,  2019,  3988,  2698,
+          6658,  2163,  4161,  2037, 22965,  2013,  1996,  2406,  2000,  2433,
+          1996, 18179,  1012,  2162,  3631,  2041,  1999,  2258,  6863,  2043,
+         22965,  2923,  2749,  4457,  3481,  7680,  3334,  1999,  2148,  3792,
+          1010,  2074,  2058,  1037,  3204,  2044,  5367,  1005,  1055, 17331,
+          1012,   102]])}
+```
+
+
+
+### forward and calcuate loss
+
+```python
+mlm.eval()
+with torch.no_grad():
+    output = mlm(**inputs)
+output.keys()
+```
+
+```bash
+odict_keys(['loss', 'logits', 'hidden_states'])
+```
+
+`output["logits"]` 其实就是还没有经过 softmax 的最终输出，我们可以进行验证
+
+
+
+```python
+tmp = mlm.cls(output["hidden_states"][-1])
+torch.equal(tmp, output["logits"])
+```
+
+```bash
+True
+```
+
+
+
+或者我们再细化一下
+
+```python
+mlm.eval()
+with torch.no_grad():
+    transformed = mlm.cls.predictions.transform(last_hidden_state)
+    print(transformed.shape)
+    logits = mlm.cls.predictions.decoder(transformed)
+    print(logits.shape)
+logits == output["logits"]
+```
+
+```bash
+tensor([[[True, True, True,  ..., True, True, True],
+         [True, True, True,  ..., True, True, True],
+         [True, True, True,  ..., True, True, True],
+         ...,
+         [True, True, True,  ..., True, True, True],
+         [True, True, True,  ..., True, True, True],
+         [True, True, True,  ..., True, True, True]]])
+```
+
+
+
+### **loss and translate**
+
+要学会这个过程！！
+
+1. 对交叉熵的理解加深了
+2. 会计算 loss 和翻译了
+
+
+
+具体过程去看 `10_masked_lm.ipynb` 这个文件
