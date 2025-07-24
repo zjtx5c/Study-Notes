@@ -1402,3 +1402,119 @@ tensor([[[True, True, True,  ..., True, True, True],
 
 
 具体过程去看 `10_masked_lm.ipynb` 这个文件
+
+
+
+
+
+## 其他补充
+
+### 关于 Bert 中位置编码的理解
+
+* `Tokenizer` 会不会处理位置编码？（`position_ids`）
+
+  Hugging Face 的 `BertTokenizer`（或 `BertTokenizerFast`）**只负责将文本转成 token ids、attention mask、token type ids**，并**不会处理或输出位置编码**。返回结果是没有 `position_ids`
+
+  这里扩展一下对 `token_type_ids` 的理解。输出只有 0 和 1，适用于**句子对的任务**（如 NLI、问答）。
+
+  > 如果我们不传 `token_type_ids` 会怎样？
+  >
+  > Hugging Face 会自动补上：
+  >
+  > - 单输入时，全填 `0`
+  > - 双输入时，自动切分 `[SEP]`，填 `0/1`
+
+* BERT **模型**中的位置编码是不是可传也可以不传？什么时候推荐传入什么时候不推荐传入。
+
+  `Tokenizer` 不会自动生成位置编码，那么自然需要模型生成。
+
+  > BERT 的源码中会做如下逻辑：
+  >
+  > ```python
+  > if position_ids is None:
+  >     position_ids = self.position_ids[:, :seq_length]
+  > ```
+  >
+  > 也就是说：
+  >
+  > - 如果你 **不传 `position_ids`**，模型内部会**自动生成** `[0, 1, 2, ..., seq_len - 1]`
+  >
+  >   > 上述这段代码会从 `register_buffer`（不可训练的缓冲张量） 的 `position_ids` 中切片拿出 `[0, 1, 2, ..., seq_length-1]` 作为当前 batch 的 position ids（假设 batch_size=1，则 shape 为 `[1, seq_length]`）。
+  >   >
+  >   > * 不需要用户显式地构造 `position_ids`；
+  >   >
+  >   > * 对于大多数任务和常规输入，是合理的。
+  >
+  > - 如果你 **传了 `position_ids`**，就会用你提供的值去做位置嵌入查找
+
+  默认情况下，我们不需要传，因为**对于大多数任务和常规输入，是合理的。**
+
+  但是以下情况我们建议自己构造：
+
+  > 输入为**非自然语言顺序**的情况；
+  >
+  > **多模态融合**时的位置控制；
+  >
+  > 某些模型变种（如 Rotary Positional Embedding, Sparse Attention）；
+
+* 具体一点，什么时候我们需要显示上传 `position_ids`
+
+  > | 场景                                       | 说明                                  |
+  > | ------------------------------------------ | ------------------------------------- |
+  > | 长文本截断拼接（如滑窗拼接）               | 需要手动控制位置从 `0` 开始或延续上文 |
+  > | 多段拼接输入（如 passage + table）         | 想给不同段落分配独立的位置编码        |
+  > | 做 prompt tuning / prefix tuning           | 有些 prompt 你希望从特殊位置编码开始  |
+  > | 模型改造或结构变化（如 relative position） | 替换了绝对位置编码，可能要手动管理    |
+
+
+
+### 关于在 padding 位置上对编码嵌入的问题
+
+> **Padding 位置的嵌入与其他 token 一样，都是通过 embedding lookup 得到的。**
+>
+> 但 padding token 的 ID 一般是 `0`（或你设定的特殊 ID），所以它对应的是一个特定的 **词向量（Embedding）**，且后续在 **Attention 中被屏蔽**，不会参与语义传播。
+
+自注意力如何计算的画个图看个公式就懂了
+
+> 在 Hugging Face、原始 BERT 或 Transformer 代码中，会对 `scores` 做如下处理：
+>
+> ```python
+> scores += (1 - attention_mask) * (-1e9)
+> ```
+>
+> 这一步的意思是：
+>
+> > **对每一个 query token（第 i 行），把它对 padding 的 key token（第 j 列）注意力分数变成极小值 → softmax 后几乎为 0**
+>
+> 假设 attention_mask 是：
+>
+> ```python
+> [1, 1, 1, 1, 0, 0]  # T=6
+> ```
+>
+> Attention Score 原始矩阵（未屏蔽）：
+>
+> ```python
+>       CLS  this  is  good  PAD  PAD
+> CLS    a     b    c    d     e    f
+> this   g     h    i    j     k    l
+> ...
+> PAD    r     s    t    u     v    w
+> 
+> ```
+>
+> 加入 mask 后（以行为例，CLS 行）：
+>
+> ```python
+>       CLS  this  is  good  PAD  PAD
+> CLS    a     b    c    d   -inf  -inf
+> this   g     h    i    j  -inf  -inf
+> ...
+> PAD    r     s    t    u  -inf  -inf
+> 
+> ```
+>
+> - 每一行对应一个 Query token（就是在“看别人”）
+> - `attention_mask[j] == 0` → 第 `j` 列被屏蔽 → **这个 token 不被任何人看到**
+
+**现在我们能理解在上游预处理过程中掩码是如何工作得到有效的嵌入的（并且还能不破坏形状高效并行处理），那么在下游过程中其是怎么处理的呢？即如何理解 mask 的工作机制呢？会不会出现维度不匹配的情况？**

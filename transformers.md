@@ -162,7 +162,7 @@ DatasetDict({
 emotions_encoded.set_format('torch', columns=['label', 'input_ids', 'attention_mask'])
 ```
 
-是 Hugging Face `datasets` 库中 `Dataset` 对象的方法，用于将指定的列转换为 **PyTorch 张量（tensor）格式**，方便用于模型训练。（原来一般是 list 类型）
+是 Hugging Face `datasets` 库中 `Dataset` 对象的方法，用于将指定的列转换为 **PyTorch 张量（tensor）格式**，方便用于模型训练。（**原来一般是 list 类型**）
 
 > 把 `emotions_encoded` 数据集中的 `'label'`, `'input_ids'`, `'attention_mask'` 三列转换成 `torch.Tensor` 类型，以便和 PyTorch 模型对接。
 >

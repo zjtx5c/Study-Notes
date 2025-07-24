@@ -18,6 +18,60 @@ T5（**Text-To-Text Transfer Transformer**）的中文全称通常翻译为：
 
 
 
+## 注意点与细节
+
+* T5 的`tokenizer.tokenize()` 一次只能处理**一条语句**，因为 `tokenizer.tokenize()` 的签名是
+
+  ```python
+  tokenizer.tokenize(text: str)
+  ```
+
+  也就是说不能直接传一个字符串列表.
+
+  如果我们要完成批处理，可以
+
+  1. 使用列表推导式
+
+     ```python
+     texts = ["First text", "Second text", "Third text"]
+     tokenized_texts = [tokenizer_t5.tokenize(t) for t in texts]
+     ```
+
+  2. 直接调用 `__call__()` `tokenizer(...)`
+
+     ```
+     tokenizer_t5(texts, padding=True, truncation=True, return_tensors="pt")
+     ```
+
+  3. `tokenizer.batch_encode_plus`
+
+     ```python
+     tokenizer_t5.batch_encode_plus(texts,  padding = True, return_tensors="pt")
+     ```
+
+  ```bash
+  {'input_ids': tensor([[1485, 1499,    1,    0,    0,    0,    0],
+          [5212, 1499,    1,    0,    0,    0,    0],
+          [9879, 1499,  255,   29, 1018,  122,    1]]), 'attention_mask': tensor([[1, 1, 1, 0, 0, 0, 0],
+          [1, 1, 1, 0, 0, 0, 0],
+          [1, 1, 1, 1, 1, 1, 1]])}
+  ```
+
+* -100 专门用在标签上，其与其他 token ID 的区别如下
+
+  | **特性**       | **token ID**                                | **标签中的 `-100`**        |
+  | -------------- | ------------------------------------------- | -------------------------- |
+  | **范围**       | 非负整数（如 0, 1, 2...）                   | 固定值 `-100`              |
+  | **用途**       | 表示词汇表中的 token                        | 标记损失计算中应忽略的位置 |
+  | **是否可转换** | 可以通过 `convert_ids_to_tokens()` 转换     | 不可以，会报错             |
+  | **存在位置**   | 输入（input_ids）和标签（labels）的有效位置 | 仅存在于标签（labels）中   |
+
+
+
+
+
+
+
 ## 模型概览
 
 ### 任务

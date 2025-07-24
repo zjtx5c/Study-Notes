@@ -771,6 +771,46 @@
       > ```
       >
       > `'bmn,bnp->bmp'` 中的 $b$ 代表批量大小，$mn$ 和 $np$ 分别表示矩阵的维度，最终结果是形状为 $(b, m, p)$ 的张量。
+    
+  * `.scatter()`
+  
+    是 PyTorch 中一个强大的张量操作函数，用于**按照指定的索引将某些值写入到目标张量的指定位置**，常用于实现像 one-hot 编码、图神经网络中的特征聚合、稀疏赋值等操作。
+  
+    初次见面是在重构 LLM 编码阶段使用的函数
+  
+    * 一般都是这样使用 `input.scatter(dim = , index = , src)`
+    * 当然，`torch.scatter()` 的用法也很常见
+  
+    参数说明：
+  
+    > - **`input`**：目标张量，通常是一个初始化好的张量（如全零）。
+    > - **`dim`**：指定在哪个维度上进行 scatter 操作。（维度指定后， `index` 对应的就是在**该维度下的索引**）
+    > - **`index`**：一个整型张量，表示将值写入 `input` 的哪个位置。
+    > - **`src`**：源张量，表示要写入的值，其 shape 必须和 `index` 相同。（当然符合广播机制也可以）因为要在这个位置上，一个索引对应一个值！
+  
+    应用场景：
+  
+    1. `One-hot` 编码
+  
+       ```python
+       labels = torch.tensor([1, 3, 0])
+       one_hot = torch.zeros(3, 4)
+       one_hot.scatter(1, labels.unsqueeze(1), 1)
+       ```
+  
+    2. 图神经网络中节点特征聚合
+  
+       ```python
+       messages = torch.tensor([[1.0], [2.0], [3.0]])   # 每条边的消息
+       target_nodes = torch.tensor([0, 1, 0])           # 每条边的目标节点
+       output = torch.zeros(2, 1)
+       output = output.scatter_add(0, target_nodes.unsqueeze(1), messages)
+       
+       ```
+  
+       
+  
+    
 
 
 ### 张量的数学运算
@@ -996,7 +1036,7 @@
 
      `DataLoader` 可以通过多线程并行加载数据，这对大规模数据集尤其有用。它可以指定 `num_workers` 参数来使用多个工作进程（workers）加载数据，从而加速数据读取和预处理过程，避免了数据加载成为训练过程中的瓶颈。
 
-  3. 打乱数据（Shuffling
+  3. 打乱数据（Shuffling）
 
      在训练过程中，为了避免模型过拟合并增强泛化能力，`DataLoader` 提供了 `shuffle=True` 的功能，它会在每个 epoch 结束后对数据进行重新打乱。这个功能对独立同分布（i.i.d.）数据尤为重要，然而对于时序数据，这个功能通常是关闭的。
 
@@ -1017,6 +1057,39 @@
   * 是否打乱样本（`shuffle`） 决定了 `DataLoader` 是否顺序加载数据
   * 若样本不是批次的整数倍，那么若 `drop_last=False` ，即便最后一批不足 `batch_size`，也会被保留。
   * 综上，我们可以不打乱样本以及实现对时序数据的批处理
+  
+* 如何理解 `collate_fn` 
+
+  我们从流程的角度去理解，对于 `Dataloader` 来说，它通过调用 `Dataset` 中提供的 `__gititem__` 来获取每一批次的数据，又会通过 `__len__` 来获取 `batch_size`，但这也仅仅只是获取数据而已，我们更加需要的是**能进入模型的输入数据**。`collate_fn` 参数控制的是 **如何将一个 batch 中的样本“拼接”成模型输入的张量**。默认情况下，`DataLoader` 会自动将一个 batch 的数据打包成张量；但当数据结构复杂、尺寸不统一、或者需要特殊处理时，就需要我们通过 `collate_fn` 自定义拼接逻辑。
+
+  例如
+
+  ```python
+  def collate_fn(batch):
+      # batch 是一个 list，包含多个由 Dataset 返回的样本
+      # 每一个 batch 的形式可能是这样：
+      # batch = [(tensor1, label1), (tensor2, label2), ...]
+      # 每个元素：batch[i] = dataset[i]
+      # 返回值应是用于模型的 batch 输入
+  
+  ```
+
+  我们举一个针对复杂嵌套结构的处理
+
+  ```python
+  def collate_fn_nested(batch):
+      # batch 中的每个样本可能是 dict 类型
+      # batch = [{'input': tensor1, 'label': label1}, ...]
+      inputs = [item['input'] for item in batch]
+      labels = [item['label'] for item in batch]
+      
+      inputs = torch.stack(inputs)
+      labels = torch.tensor(labels)
+      
+      return {'input': inputs, 'label': labels}
+  ```
+
+  
 
 
 
